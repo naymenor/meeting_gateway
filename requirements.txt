@@ -1,0 +1,14 @@
+Django>=5.2.8,<5.3
+djangorestframework>=3.16,<3.17
+psycopg[binary]>=3.2,<3.4
+redis>=6,<7
+celery[redis]>=5.5,<6
+httpx>=0.28,<0.29
+cryptography>=45,<47
+drf-spectacular>=0.28,<0.30
+gunicorn>=23,<24
+dj-database-url>=3,<4
+pytest>=8,<10
+pytest-django>=4.11,<5
+whitenoise>=6.9,<7
+PyJWT>=2.14,<3

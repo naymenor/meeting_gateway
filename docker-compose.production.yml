@@ -1,0 +1,22 @@
+# Use with: docker compose -f docker-compose.yml -f docker-compose.production.yml
+# Supply GATEWAY_ENV_FILE pointing to a protected production environment file.
+x-production: &production
+  volumes: !override ["static_data:/app/staticfiles"]
+  restart: unless-stopped
+  environment:
+    DJANGO_SETTINGS_MODULE: config.settings.production
+    CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Export the production encryption key}
+services:
+  web:
+    <<: *production
+  worker:
+    <<: *production
+  beat:
+    <<: *production
+  db:
+    restart: unless-stopped
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Export the production database password}
+  redis:
+    restart: unless-stopped

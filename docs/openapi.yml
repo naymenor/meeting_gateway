@@ -1,0 +1,1652 @@
+openapi: 3.0.3
+info:
+  title: Meeting Gateway
+  version: 1.0.0
+  description: Trusted backend API. Exchange client credentials at /api/v1/auth/token/
+    for a Gateway Bearer JWT over HTTPS. Scopes and ownership enforced; Convay tokens
+    may be account scoped.
+paths:
+  /api/schema/:
+    get:
+      operationId: api_schema_retrieve
+      description: |-
+        OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+        - YAML: application/vnd.oai.openapi
+        - JSON: application/vnd.oai.openapi+json
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - yaml
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - af
+          - ar
+          - ar-dz
+          - ast
+          - az
+          - be
+          - bg
+          - bn
+          - br
+          - bs
+          - ca
+          - ckb
+          - cs
+          - cy
+          - da
+          - de
+          - dsb
+          - el
+          - en
+          - en-au
+          - en-gb
+          - eo
+          - es
+          - es-ar
+          - es-co
+          - es-mx
+          - es-ni
+          - es-ve
+          - et
+          - eu
+          - fa
+          - fi
+          - fr
+          - fy
+          - ga
+          - gd
+          - gl
+          - he
+          - hi
+          - hr
+          - hsb
+          - hu
+          - hy
+          - ia
+          - id
+          - ig
+          - io
+          - is
+          - it
+          - ja
+          - ka
+          - kab
+          - kk
+          - km
+          - kn
+          - ko
+          - ky
+          - lb
+          - lt
+          - lv
+          - mk
+          - ml
+          - mn
+          - mr
+          - ms
+          - my
+          - nb
+          - ne
+          - nl
+          - nn
+          - os
+          - pa
+          - pl
+          - pt
+          - pt-br
+          - ro
+          - ru
+          - sk
+          - sl
+          - sq
+          - sr
+          - sr-latn
+          - sv
+          - sw
+          - ta
+          - te
+          - tg
+          - th
+          - tk
+          - tr
+          - tt
+          - udm
+          - ug
+          - uk
+          - ur
+          - uz
+          - vi
+          - zh-hans
+          - zh-hant
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/vnd.oai.openapi:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/yaml:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/vnd.oai.openapi+json:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/auth/token/:
+    post:
+      operationId: api_v1_auth_token_create
+      description: Exchange machine client credentials for a short-lived Gateway JWT.
+        No Django session or Admin login required. This is not a Convay token.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+            examples:
+              ClientCredentials:
+                value:
+                  client_id: 11111111-1111-4111-8111-111111111111
+                  client_secret: FAKE_CLIENT_SECRET
+                summary: Client credentials
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              examples:
+                GatewayAccessToken:
+                  value:
+                    success: true
+                    data:
+                      accessToken: FAKE_GATEWAY_JWT
+                      tokenType: Bearer
+                      expiresIn: 3600
+                      scopes:
+                      - meeting:write
+                      - meeting:read
+                      - meeting:token
+                      - room:read
+                      - meeting:cancel
+                  summary: Gateway access token
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INVALID_CLIENT.
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Token exchange rate limited.
+  /api/v1/meetings/:
+    get:
+      operationId: meeting_search
+      description: Search only the caller’s meetings. Requires meeting:read. No bearer
+        tokens or sensitive URLs returned.
+      parameters:
+      - in: query
+        name: batch_id
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: class_date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: created_from
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_to
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: external_class_id
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: id
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: page
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 25
+      - in: query
+        name: provider_calendar_id
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: room_id
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: start_from
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: start_to
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: status
+        schema:
+          enum:
+          - DRAFT
+          - RESERVED
+          - PROVISIONING
+          - READY
+          - LIVE
+          - ENDED
+          - CANCELLED
+          - FAILED
+          - PROVIDER_RESPONSE_INVALID
+          - PROVIDER_STATE_UNKNOWN
+          type: string
+          minLength: 1
+        description: |-
+          * `DRAFT` - DRAFT
+          * `RESERVED` - RESERVED
+          * `PROVISIONING` - PROVISIONING
+          * `READY` - READY
+          * `LIVE` - LIVE
+          * `ENDED` - ENDED
+          * `CANCELLED` - CANCELLED
+          * `FAILED` - FAILED
+          * `PROVIDER_RESPONSE_INVALID` - PROVIDER_RESPONSE_INVALID
+          * `PROVIDER_STATE_UNKNOWN` - PROVIDER_STATE_UNKNOWN
+      - in: query
+        name: subject_id
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: subject_name
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: teacher_id
+        schema:
+          type: string
+          minLength: 1
+      - in: query
+        name: teacher_name
+        schema:
+          type: string
+          minLength: 1
+      tags:
+      - api
+      security:
+      - GatewayBearer: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid request.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INVALID_TOKEN or TOKEN_EXPIRED.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INSUFFICIENT_SCOPE.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Meeting not found for this client.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, room slot, capacity, or creation-in-progress conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider contract or validation rejection.
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider authentication, authorization, endpoint, response,
+            or unknown-state failure.
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider unavailable or rate limited.
+    post:
+      operationId: api_v1_meetings_create
+      description: Register metadata without contacting Convay. Requires meeting:write.
+        The same client and class.id reuses the existing Gateway meeting and returns
+        200; a new registration returns 201.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Registration'
+            examples:
+              MeetingRegistration:
+                value:
+                  meetingTitle: API Test Physics
+                  teacher:
+                    id: T-001
+                    name: Test Teacher
+                  subject:
+                    id: PHY-5054
+                    name: Physics
+                  batch:
+                    id: B-001
+                    name: Test Batch
+                  class:
+                    id: CLS-001
+                    date: '2026-09-24'
+                summary: Meeting registration
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Registration'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Registration'
+        required: true
+      security:
+      - GatewayBearer: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistrationResponse'
+              examples:
+                DraftRegistrationWithRoomAvailability:
+                  value:
+                    success: true
+                    data:
+                      id: 11111111-1111-4111-8111-111111111111
+                      classInfo:
+                        classId: CLS-001
+                        teacher:
+                          id: T-001
+                          name: Test Teacher
+                        subject:
+                          id: PHY-5054
+                          name: Physics
+                        batch:
+                          id: B-001
+                          name: Test Batch
+                      meetingInfo:
+                        meetingTitle: API Test Physics
+                        classDate: '2026-09-24'
+                        scheduleType: scheduled
+                        startAt: null
+                        endAt: null
+                        status: DRAFT
+                      roomInfo: null
+                      convay:
+                        meetingType: instant
+                        calendarId: null
+                        meetingPanelAddress: null
+                      createdAt: '2026-09-24T10:00:00+06:00'
+                      rooms:
+                      - roomId: ROOM-01
+                        roomName: Primary Convay Room
+                        bookedSlots:
+                        - startAt: '2026-09-24T14:00:00+06:00'
+                          endAt: '2026-09-24T15:00:00+06:00'
+                          status: BOOKED
+                  summary: Draft registration with room availability
+          description: Existing meeting for this client and class.id.
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistrationResponse'
+              examples:
+                DraftRegistrationWithRoomAvailability:
+                  value:
+                    success: true
+                    data:
+                      id: 11111111-1111-4111-8111-111111111111
+                      classInfo:
+                        classId: CLS-001
+                        teacher:
+                          id: T-001
+                          name: Test Teacher
+                        subject:
+                          id: PHY-5054
+                          name: Physics
+                        batch:
+                          id: B-001
+                          name: Test Batch
+                      meetingInfo:
+                        meetingTitle: API Test Physics
+                        classDate: '2026-09-24'
+                        scheduleType: scheduled
+                        startAt: null
+                        endAt: null
+                        status: DRAFT
+                      roomInfo: null
+                      convay:
+                        meetingType: instant
+                        calendarId: null
+                        meetingPanelAddress: null
+                      createdAt: '2026-09-24T10:00:00+06:00'
+                      rooms:
+                      - roomId: ROOM-01
+                        roomName: Primary Convay Room
+                        bookedSlots:
+                        - startAt: '2026-09-24T14:00:00+06:00'
+                          endAt: '2026-09-24T15:00:00+06:00'
+                          status: BOOKED
+                  summary: Draft registration with room availability
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid request.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INVALID_TOKEN or TOKEN_EXPIRED.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INSUFFICIENT_SCOPE.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Meeting not found for this client.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, room slot, capacity, or creation-in-progress conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider contract or validation rejection.
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider authentication, authorization, endpoint, response,
+            or unknown-state failure.
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider unavailable or rate limited.
+  /api/v1/meetings/{id}/:
+    get:
+      operationId: api_v1_meetings_retrieve
+      description: Requires meeting:read.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - api
+      security:
+      - GatewayBearer: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid request.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INVALID_TOKEN or TOKEN_EXPIRED.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INSUFFICIENT_SCOPE.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Meeting not found for this client.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, room slot, capacity, or creation-in-progress conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider contract or validation rejection.
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider authentication, authorization, endpoint, response,
+            or unknown-state failure.
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider unavailable or rate limited.
+  /api/v1/meetings/{id}/cancel/:
+    post:
+      operationId: api_v1_meetings_cancel_create
+      description: Repeatable local cancellation. Requires meeting:cancel. An already
+        CANCELLED meeting is returned successfully; created/unknown provider meetings
+        require operational reconciliation.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - api
+      security:
+      - GatewayBearer: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingResponse'
+              examples:
+                CancelledMeeting:
+                  value:
+                    success: true
+                    data:
+                      id: 11111111-1111-4111-8111-111111111111
+                      classInfo:
+                        classId: CLS-001
+                        teacher:
+                          id: T-001
+                          name: Test Teacher
+                        subject:
+                          id: PHY-5054
+                          name: Physics
+                        batch:
+                          id: B-001
+                          name: Test Batch
+                      meetingInfo:
+                        meetingTitle: API Test Physics
+                        classDate: '2026-09-24'
+                        scheduleType: scheduled
+                        startAt: null
+                        endAt: null
+                        status: CANCELLED
+                      roomInfo: null
+                      convay:
+                        meetingType: instant
+                        calendarId: null
+                        meetingPanelAddress: null
+                      createdAt: '2026-09-24T10:00:00+06:00'
+                  summary: Cancelled meeting
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid request.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INVALID_TOKEN or TOKEN_EXPIRED.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INSUFFICIENT_SCOPE.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Meeting not found for this client.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, room slot, capacity, or creation-in-progress conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider contract or validation rejection.
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider authentication, authorization, endpoint, response,
+            or unknown-state failure.
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider unavailable or rate limited.
+  /api/v1/meetings/{id}/convay-token/:
+    post:
+      operationId: api_v1_meetings_convay_token_create
+      description: Requires meeting:token. Uses Gateway UUID, never calendarId. Returns
+        account-scoped access token, never refresh token.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - api
+      security:
+      - GatewayBearer: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConvayTokenResponse'
+              examples:
+                RegeneratedConvayAuthorization:
+                  value:
+                    success: true
+                    data:
+                      id: 11111111-1111-4111-8111-111111111111
+                      roomInfo:
+                        roomId: ROOM-01
+                        roomName: Primary Convay Room
+                      convay:
+                        calendarId: fake-calendar-id
+                        authorization:
+                          accessToken: FAKE_CONVAY_ACCESS_TOKEN
+                          tokenType: Bearer
+                          expiresAt: null
+                  summary: Regenerated Convay authorization
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid request.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INVALID_TOKEN or TOKEN_EXPIRED.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INSUFFICIENT_SCOPE.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Meeting not found for this client.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, room slot, capacity, or creation-in-progress conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider contract or validation rejection.
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider authentication, authorization, endpoint, response,
+            or unknown-state failure.
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider unavailable or rate limited.
+  /api/v1/meetings/{id}/create/:
+    post:
+      operationId: api_v1_meetings_create_create
+      description: Atomically reserve and create from DRAFT. Requires meeting:write.
+        A READY meeting is returned without another provider creation. PROVISIONING
+        and unresolved provider outcomes return 409. Convay credentials are returned
+        only with meeting:token. Omit roomId for automatic allocation.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Booking'
+            examples:
+              MeetingCreation:
+                value:
+                  roomId: ROOM-01
+                  startAt: '2026-09-24T17:00:00+06:00'
+                  endAt: '2026-09-24T18:00:00+06:00'
+                summary: Meeting creation
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Booking'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Booking'
+        required: true
+      security:
+      - GatewayBearer: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingResponse'
+              examples:
+                SuccessfulMeetingCreation:
+                  value:
+                    success: true
+                    data:
+                      id: 11111111-1111-4111-8111-111111111111
+                      classInfo:
+                        classId: CLS-001
+                        teacher:
+                          id: T-001
+                          name: Test Teacher
+                        subject:
+                          id: PHY-5054
+                          name: Physics
+                        batch:
+                          id: B-001
+                          name: Test Batch
+                      meetingInfo:
+                        meetingTitle: API Test Physics
+                        classDate: '2026-09-24'
+                        scheduleType: scheduled
+                        startAt: '2026-09-24T17:00:00+06:00'
+                        endAt: '2026-09-24T18:00:00+06:00'
+                        status: READY
+                      roomInfo:
+                        roomId: ROOM-01
+                        roomName: Primary Convay Room
+                      convay:
+                        meetingType: instant
+                        calendarId: fake-calendar-id
+                        meetingPanelAddress: meet.convay.com
+                        startMeetingUrl: https://meet.convay.com/example?jwt=FAKE
+                        authorization:
+                          accessToken: FAKE_CONVAY_ACCESS_TOKEN
+                          tokenType: Bearer
+                          expiresAt: null
+                      createdAt: '2026-09-24T10:00:00+06:00'
+                  summary: Successful meeting creation
+          description: Meeting was already READY; existing result returned.
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingResponse'
+              examples:
+                SuccessfulMeetingCreation:
+                  value:
+                    success: true
+                    data:
+                      id: 11111111-1111-4111-8111-111111111111
+                      classInfo:
+                        classId: CLS-001
+                        teacher:
+                          id: T-001
+                          name: Test Teacher
+                        subject:
+                          id: PHY-5054
+                          name: Physics
+                        batch:
+                          id: B-001
+                          name: Test Batch
+                      meetingInfo:
+                        meetingTitle: API Test Physics
+                        classDate: '2026-09-24'
+                        scheduleType: scheduled
+                        startAt: '2026-09-24T17:00:00+06:00'
+                        endAt: '2026-09-24T18:00:00+06:00'
+                        status: READY
+                      roomInfo:
+                        roomId: ROOM-01
+                        roomName: Primary Convay Room
+                      convay:
+                        meetingType: instant
+                        calendarId: fake-calendar-id
+                        meetingPanelAddress: meet.convay.com
+                        startMeetingUrl: https://meet.convay.com/example?jwt=FAKE
+                        authorization:
+                          accessToken: FAKE_CONVAY_ACCESS_TOKEN
+                          tokenType: Bearer
+                          expiresAt: null
+                      createdAt: '2026-09-24T10:00:00+06:00'
+                  summary: Successful meeting creation
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid request.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INVALID_TOKEN or TOKEN_EXPIRED.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INSUFFICIENT_SCOPE.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Meeting not found for this client.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                SlotConflict:
+                  value:
+                    success: false
+                    code: ROOM_SLOT_CONFLICT
+                    message: The selected room is no longer available for this time.
+                    details: {}
+                    requestId: 22222222-2222-4222-8222-222222222222
+                  summary: Slot conflict
+          description: State, room slot, capacity, or creation-in-progress conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                ProviderValidationRejection:
+                  value:
+                    success: false
+                    code: PROVIDER_VALIDATION_ERROR
+                    message: Convay rejected the meeting payload.
+                    details: {}
+                    requestId: 22222222-2222-4222-8222-222222222222
+                  summary: Provider validation rejection
+          description: Provider contract or validation rejection.
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                ProviderCreationOutcomeUnknown:
+                  value:
+                    success: false
+                    code: PROVIDER_STATE_UNKNOWN
+                    message: Provider creation outcome is unknown; reservation retained.
+                    details: {}
+                    requestId: 22222222-2222-4222-8222-222222222222
+                  summary: Provider creation outcome unknown
+          description: Provider authentication, authorization, endpoint, response,
+            or unknown-state failure.
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider unavailable or rate limited.
+  /api/v1/rooms/availability/:
+    get:
+      operationId: api_v1_rooms_availability_retrieve
+      description: Requires room:read. Occupancy only; other clients’ identifiers
+        are never disclosed. Bounds include configured buffers.
+      parameters:
+      - in: query
+        name: date
+        schema:
+          type: string
+          format: date
+        required: true
+      - in: query
+        name: end_at
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: start_at
+        schema:
+          type: string
+          format: date-time
+      tags:
+      - api
+      security:
+      - GatewayBearer: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailabilityResponse'
+              examples:
+                RoomAvailability:
+                  value:
+                    success: true
+                    data:
+                      date: '2026-09-24'
+                      rooms:
+                      - roomId: ROOM-01
+                        roomName: Primary Convay Room
+                        bookedSlots:
+                        - startAt: '2026-09-24T14:00:00+06:00'
+                          endAt: '2026-09-24T15:00:00+06:00'
+                          status: BOOKED
+                  summary: Room availability
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid request.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INVALID_TOKEN or TOKEN_EXPIRED.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: INSUFFICIENT_SCOPE.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Meeting not found for this client.
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: State, room slot, capacity, or creation-in-progress conflict.
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider contract or validation rejection.
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider authentication, authorization, endpoint, response,
+            or unknown-state failure.
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Provider unavailable or rate limited.
+  /health/live/:
+    get:
+      operationId: health_live_retrieve
+      tags:
+      - health
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+          description: ''
+  /health/ready/:
+    get:
+      operationId: health_ready_retrieve
+      tags:
+      - health
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthError'
+          description: PostgreSQL or Redis unavailable.
+components:
+  schemas:
+    AvailabilityData:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        rooms:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoomAvailability'
+      required:
+      - date
+      - rooms
+    AvailabilityResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/AvailabilityData'
+      required:
+      - data
+      - success
+    BookedSlot:
+      type: object
+      properties:
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/BookedSlotStatusEnum'
+      required:
+      - endAt
+      - startAt
+      - status
+    BookedSlotStatusEnum:
+      enum:
+      - BOOKED
+      type: string
+      description: '* `BOOKED` - BOOKED'
+    Booking:
+      type: object
+      properties:
+        roomId:
+          type: string
+          maxLength: 64
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+      required:
+      - endAt
+      - startAt
+    Class:
+      type: object
+      properties:
+        id:
+          type: string
+          maxLength: 160
+        date:
+          type: string
+          format: date
+      required:
+      - date
+      - id
+    ClassInfo:
+      type: object
+      properties:
+        classId:
+          type: string
+        teacher:
+          $ref: '#/components/schemas/Reference'
+        subject:
+          $ref: '#/components/schemas/Reference'
+        batch:
+          $ref: '#/components/schemas/Reference'
+      required:
+      - batch
+      - classId
+      - subject
+      - teacher
+    ConvayInfo:
+      type: object
+      properties:
+        meetingType:
+          type: string
+        calendarId:
+          type: string
+          nullable: true
+        meetingPanelAddress:
+          type: string
+          nullable: true
+        startMeetingUrl:
+          type: string
+          format: uri
+          nullable: true
+        authorization:
+          $ref: '#/components/schemas/ProviderAuthorization'
+      required:
+      - calendarId
+      - meetingPanelAddress
+      - meetingType
+    ConvayTokenData:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        roomInfo:
+          $ref: '#/components/schemas/RoomInfo'
+        convay:
+          $ref: '#/components/schemas/ConvayTokenInfo'
+      required:
+      - convay
+      - id
+      - roomInfo
+    ConvayTokenInfo:
+      type: object
+      properties:
+        calendarId:
+          type: string
+          nullable: true
+        authorization:
+          $ref: '#/components/schemas/ProviderAuthorization'
+      required:
+      - authorization
+      - calendarId
+    ConvayTokenResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/ConvayTokenData'
+      required:
+      - data
+      - success
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        code:
+          type: string
+        message:
+          type: string
+        details: {}
+        requestId:
+          type: string
+      required:
+      - code
+      - details
+      - message
+      - requestId
+      - success
+    HealthData:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+      - status
+    HealthError:
+      type: object
+      properties:
+        success:
+          type: boolean
+        code:
+          type: string
+        message:
+          type: string
+        details: {}
+        requestId:
+          type: string
+      required:
+      - code
+      - details
+      - message
+      - requestId
+      - success
+    HealthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/HealthData'
+      required:
+      - data
+      - success
+    MeetingData:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        classInfo:
+          $ref: '#/components/schemas/ClassInfo'
+        meetingInfo:
+          $ref: '#/components/schemas/MeetingInfo'
+        roomInfo:
+          allOf:
+          - $ref: '#/components/schemas/RoomInfo'
+          nullable: true
+        convay:
+          $ref: '#/components/schemas/ConvayInfo'
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - classInfo
+      - convay
+      - createdAt
+      - id
+      - meetingInfo
+      - roomInfo
+    MeetingInfo:
+      type: object
+      properties:
+        meetingTitle:
+          type: string
+        classDate:
+          type: string
+          format: date
+        scheduleType:
+          $ref: '#/components/schemas/MeetingInfoScheduleTypeEnum'
+        startAt:
+          type: string
+          format: date-time
+          nullable: true
+        endAt:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          $ref: '#/components/schemas/MeetingInfoStatusEnum'
+      required:
+      - classDate
+      - endAt
+      - meetingTitle
+      - scheduleType
+      - startAt
+      - status
+    MeetingInfoScheduleTypeEnum:
+      enum:
+      - scheduled
+      - instant
+      type: string
+      description: |-
+        * `scheduled` - scheduled
+        * `instant` - instant
+    MeetingInfoStatusEnum:
+      enum:
+      - DRAFT
+      - RESERVED
+      - PROVISIONING
+      - READY
+      - LIVE
+      - ENDED
+      - CANCELLED
+      - FAILED
+      - PROVIDER_RESPONSE_INVALID
+      - PROVIDER_STATE_UNKNOWN
+      type: string
+      description: |-
+        * `DRAFT` - DRAFT
+        * `RESERVED` - RESERVED
+        * `PROVISIONING` - PROVISIONING
+        * `READY` - READY
+        * `LIVE` - LIVE
+        * `ENDED` - ENDED
+        * `CANCELLED` - CANCELLED
+        * `FAILED` - FAILED
+        * `PROVIDER_RESPONSE_INVALID` - PROVIDER_RESPONSE_INVALID
+        * `PROVIDER_STATE_UNKNOWN` - PROVIDER_STATE_UNKNOWN
+    MeetingResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/MeetingData'
+      required:
+      - data
+      - success
+    ProviderAuthorization:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - accessToken
+      - expiresAt
+      - tokenType
+    Reference:
+      type: object
+      properties:
+        id:
+          type: string
+          maxLength: 160
+        name:
+          type: string
+          maxLength: 200
+      required:
+      - id
+      - name
+    Registration:
+      type: object
+      properties:
+        meetingTitle:
+          type: string
+          maxLength: 250
+        teacher:
+          $ref: '#/components/schemas/Reference'
+        subject:
+          $ref: '#/components/schemas/Reference'
+        batch:
+          $ref: '#/components/schemas/Reference'
+        scheduleType:
+          allOf:
+          - $ref: '#/components/schemas/RegistrationScheduleTypeEnum'
+          default: SCHEDULED
+        class:
+          $ref: '#/components/schemas/Class'
+      required:
+      - batch
+      - class
+      - meetingTitle
+      - teacher
+    RegistrationData:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        classInfo:
+          $ref: '#/components/schemas/ClassInfo'
+        meetingInfo:
+          $ref: '#/components/schemas/MeetingInfo'
+        roomInfo:
+          allOf:
+          - $ref: '#/components/schemas/RoomInfo'
+          nullable: true
+        convay:
+          $ref: '#/components/schemas/ConvayInfo'
+        createdAt:
+          type: string
+          format: date-time
+        rooms:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoomAvailability'
+      required:
+      - classInfo
+      - convay
+      - createdAt
+      - id
+      - meetingInfo
+      - roomInfo
+      - rooms
+    RegistrationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/RegistrationData'
+      required:
+      - data
+      - success
+    RegistrationScheduleTypeEnum:
+      enum:
+      - SCHEDULED
+      - INSTANT
+      type: string
+      description: |-
+        * `SCHEDULED` - SCHEDULED
+        * `INSTANT` - INSTANT
+    RoomAvailability:
+      type: object
+      properties:
+        roomId:
+          type: string
+        roomName:
+          type: string
+        bookedSlots:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookedSlot'
+        available:
+          type: boolean
+      required:
+      - bookedSlots
+      - roomId
+      - roomName
+    RoomInfo:
+      type: object
+      properties:
+        roomId:
+          type: string
+        roomName:
+          type: string
+      required:
+      - roomId
+      - roomName
+    SearchData:
+      type: object
+      properties:
+        count:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/MeetingData'
+      required:
+      - count
+      - page
+      - pageSize
+      - results
+    SearchResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/SearchData'
+      required:
+      - data
+      - success
+    TokenData:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+        expiresIn:
+          type: integer
+        scopes:
+          type: array
+          items:
+            type: string
+      required:
+      - accessToken
+      - expiresIn
+      - scopes
+      - tokenType
+    TokenRequest:
+      type: object
+      properties:
+        client_id:
+          type: string
+          maxLength: 36
+        client_secret:
+          type: string
+          writeOnly: true
+          maxLength: 256
+      required:
+      - client_id
+      - client_secret
+    TokenResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/TokenData'
+      required:
+      - data
+      - success
+  securitySchemes:
+    GatewayBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Obtain a Gateway accessToken from POST /api/v1/auth/token/. Paste
+        the token here. Do not use a Convay JWT.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
