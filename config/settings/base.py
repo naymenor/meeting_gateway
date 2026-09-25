@@ -98,7 +98,7 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "DESCRIPTION": "Trusted backend API. Exchange client credentials at /api/v1/auth/token/ for a Gateway Bearer JWT over HTTPS. Scopes and ownership enforced; Convay tokens may be account scoped.",
     "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
-    "SERVE_AUTHENTICATION": ["rest_framework.authentication.SessionAuthentication"],
+    # "SERVE_AUTHENTICATION": ["rest_framework.authentication.SessionAuthentication"],
 }
 CREDENTIAL_ENCRYPTION_KEY = os.getenv("CREDENTIAL_ENCRYPTION_KEY", "")
 CREDENTIAL_ENCRYPTION_KEY_VERSION = os.getenv("CREDENTIAL_ENCRYPTION_KEY_VERSION", "1")
