@@ -1,3 +1,4 @@
+from tests.test_api import PAYLOAD
 import io
 import json
 import logging
@@ -343,8 +344,9 @@ def test_request_id_in_provider_response_django_log_and_audit(
             ),
         ):
             response = api.post(
-                f"/api/v1/meetings/{meeting.pk}/create/",
+                "/api/v1/meetings/",
                 {
+                    **PAYLOAD,
                     "roomId": room.public_id,
                     "startAt": times[0].isoformat(),
                     "endAt": times[1].isoformat(),
@@ -365,8 +367,9 @@ def test_request_id_in_provider_response_django_log_and_audit(
     assert "private-" not in stream.getvalue()
     assert request_context.get() == {}
     replay = api.post(
-        f"/api/v1/meetings/{meeting.pk}/create/",
+        "/api/v1/meetings/",
         {
+            **PAYLOAD,
             "roomId": room.public_id,
             "startAt": times[0].isoformat(),
             "endAt": times[1].isoformat(),
@@ -374,7 +377,7 @@ def test_request_id_in_provider_response_django_log_and_audit(
         format="json",
     )
     assert replay.status_code == 409
-    assert replay.data["code"] == "INVALID_STATE"
+    assert replay.data["code"] == "PREVIOUS_CREATION_FAILED"
     assert replay.data["requestId"] == replay["X-Request-ID"] != request_id
 
 
@@ -514,6 +517,7 @@ def test_known_creation_with_invalid_local_url_preserves_identifiers(
             provision(
                 meeting,
                 {
+                    **PAYLOAD,
                     "roomId": room.public_id,
                     "startAt": times[0],
                     "endAt": times[1],

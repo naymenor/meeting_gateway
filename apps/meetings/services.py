@@ -1,4 +1,5 @@
 import json
+import logging
 from django.db import transaction
 from django.utils import timezone
 from apps.audit.services import audit
@@ -6,27 +7,40 @@ from apps.rooms.configuration import resolve_config
 from apps.rooms.services import RoomAllocator
 from apps.convay.client import ConvayClient, ProviderError
 from apps.convay.tokens import get_token, invalidate
+from apps.convay.diagnostics import sanitize_text
 from common.encryption import encrypt, decrypt
 from common.exceptions import GatewayError
+from common.middleware import request_context
 from .models import Meeting
 
 
 def register(client, values):
-    meeting, created = Meeting.objects.get_or_create(
-        integration_client=client,
-        external_class_id=values["class"]["id"],
-        defaults={
-            "meeting_title": values["meetingTitle"],
-            "class_date": values["class"]["date"],
-            "teacher_id": values["teacher"]["id"],
-            "teacher_name": values["teacher"]["name"],
-            "subject_id": values.get("subject", {}).get("id", ""),
-            "subject_name": values.get("subject", {}).get("name", ""),
-            "batch_id": values["batch"]["id"],
-            "batch_name": values["batch"]["name"],
-            "schedule_type": values.get("scheduleType", "SCHEDULED"),
-        },
-    )
+    try:
+        meeting, created = Meeting.objects.get_or_create(
+            integration_client=client,
+            external_class_id=values["class"]["id"],
+            defaults={
+                "meeting_title": values["meetingTitle"],
+                "class_date": values["class"]["date"],
+                "teacher_id": values["teacher"]["id"],
+                "teacher_name": values["teacher"]["name"],
+                "batch_id": values["batch"]["id"],
+                "batch_name": values["batch"]["name"],
+                "schedule_type": values.get("scheduleType", "SCHEDULED"),
+            },
+        )
+    except Meeting.MultipleObjectsReturned:
+        # A legacy database may predate the logical-class uniqueness constraint.
+        logging.getLogger("gateway.meetings").warning({
+            "event": "meeting.logical_duplicates",
+            "integration_client_id": str(client.pk),
+            "external_class_id": sanitize_text(values["class"]["id"]),
+        }, extra={"request_id": request_context.get().get("request_id")})
+        raise GatewayError(
+            "EXISTING_MEETING_REQUIRES_REVIEW",
+            "Existing meeting records require operator review.",
+            409,
+        ) from None
     if created:
         audit("meeting_draft_created", meeting, client=client)
     else:
@@ -54,14 +68,18 @@ def provision(meeting, values):
                 "Review the existing provider outcome before creating again.",
                 409,
             )
-        if locked.status == Meeting.Status.CANCELLED:
-            raise GatewayError(
-                "INVALID_STATE", "A cancelled meeting cannot be created.", 409
-            )
+        terminal_errors = {
+            Meeting.Status.ENDED: ("CLASS_ALREADY_COMPLETED", "This class has already completed."),
+            Meeting.Status.FAILED: ("PREVIOUS_CREATION_FAILED", "Previous meeting creation failed; operator review is required."),
+            Meeting.Status.CANCELLED: ("CLASS_CANCELLED", "This class has been cancelled."),
+        }
+        if locked.status in terminal_errors:
+            code, message = terminal_errors[locked.status]
+            raise GatewayError(code, message, 409)
         if locked.status != Meeting.Status.DRAFT:
             raise GatewayError(
-                "INVALID_STATE",
-                "Meeting creation is allowed only from DRAFT.",
+                "EXISTING_MEETING_REQUIRES_REVIEW",
+                "The existing meeting requires operator review.",
                 409,
             )
         if values["startAt"].date() != locked.class_date:
@@ -219,7 +237,6 @@ def representation(meeting, token=None):
         "classInfo": {
             "classId": meeting.external_class_id,
             "teacher": {"id": meeting.teacher_id, "name": meeting.teacher_name},
-            "subject": {"id": meeting.subject_id, "name": meeting.subject_name},
             "batch": {"id": meeting.batch_id, "name": meeting.batch_name},
         },
         "meetingInfo": {

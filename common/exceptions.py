@@ -1,3 +1,5 @@
+import logging
+from common.logging import exception_diagnostics
 from rest_framework.exceptions import APIException
 from rest_framework.views import exception_handler as drf_handler
 from rest_framework.response import Response
@@ -14,6 +16,16 @@ def exception_handler(exc, context):
     response = drf_handler(exc, context)
     request_id = getattr(context.get("request"), "request_id", "")
     if response is None:
+        request = context.get("request")
+        logging.getLogger("gateway.errors").error(
+            {
+                "event": "http.unexpected_exception",
+                "method": getattr(request, "method", None),
+                "route": getattr(getattr(request, "resolver_match", None), "route", "[unmatched]"),
+                **exception_diagnostics(exc, request),
+            },
+            extra={"request_id": request_id},
+        )
         return Response(
             {
                 "success": False,

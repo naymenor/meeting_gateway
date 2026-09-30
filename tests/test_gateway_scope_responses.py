@@ -5,6 +5,7 @@ from drf_spectacular.generators import SchemaGenerator
 
 from apps.convay.client import ProviderAuthResult, ProviderMeetingResult
 from apps.integrations.tokens import issue_token
+from tests.test_api import PAYLOAD
 
 
 @pytest.mark.django_db
@@ -18,8 +19,9 @@ def test_create_with_write_scope_and_safe_replay(
     client_account.save()
     api = APIClient()
     api.credentials(HTTP_AUTHORIZATION="Bearer " + issue_token(client_account))
-    url = f"/api/v1/meetings/{meeting.pk}/create/"
+    url = "/api/v1/meetings/"
     payload = {
+        **PAYLOAD,
         "roomId": room.public_id,
         "startAt": times[0].isoformat(),
         "endAt": times[1].isoformat(),
@@ -60,42 +62,20 @@ def test_openapi_has_bearer_and_public_exchange():
     assert "/api/v1/auth/token/" in paths
     assert {"GatewayBearer": []} in paths["/api/v1/meetings/"]["get"]["security"]
     assert "security" not in paths["/api/v1/auth/token/"]["post"]
-    registration = paths["/api/v1/meetings/"]["post"]["requestBody"]["content"][
-        "application/json"
-    ]["schema"]
-    assert registration["$ref"].endswith("/Registration")
-    registration_schema = schema["components"]["schemas"]["Registration"]
-    assert "meetingTitle" in registration_schema["properties"]
-
-    create_path = next(
-        path
-        for path in paths
-        if path.startswith("/api/v1/meetings/")
-        and path.endswith("/create/")
-    )
-    create_schema = paths[create_path]["post"]["requestBody"]["content"][
-        "application/json"
-    ]["schema"]
-    assert create_schema["$ref"].endswith("/Booking")
-    booking = schema["components"]["schemas"]["Booking"]
-    assert set(booking["properties"]) == {"roomId", "startAt", "endAt"}
-    assert {"startAt", "endAt"} <= set(booking["required"])
-    assert not {"teacher", "subject", "batch", "class"} & set(booking["properties"])
-
+    operation = paths["/api/v1/meetings/"]["post"]
+    request_schema = operation["requestBody"]["content"]["application/json"]["schema"]
+    creation = schema["components"]["schemas"][request_schema["$ref"].split("/")[-1]]
+    assert set(creation["properties"]) == {"meetingTitle", "teacher", "batch", "class", "roomId", "startAt", "endAt"}
+    assert set(creation["required"]) == set(creation["properties"])
+    assert "subject" not in str(schema)
+    assert not any(path.endswith(("/create/", "/cancel/")) for path in paths)
     assert any(path.endswith("/convay-token/") for path in paths)
     assert "/api/v1/rooms/availability/" in paths
-    assert "/health/live/" in paths
-    assert "/health/ready/" in paths
-    mutation_paths = [
-        "/api/v1/meetings/",
-        create_path,
-        next(path for path in paths if path.endswith("/cancel/")),
-        next(path for path in paths if path.endswith("/convay-token/")),
-    ]
-    for path in mutation_paths:
-        parameters = paths[path]["post"].get("parameters", [])
-        assert all(item["name"].lower() != "idempotency-key" for item in parameters)
-    assert {"200", "201"} <= set(paths["/api/v1/meetings/"]["post"]["responses"])
-    assert {"200", "201", "409", "422", "502", "503"} <= set(
-        paths[create_path]["post"]["responses"]
-    )
+    assert "/health/live/" in paths and "/health/ready/" in paths
+    ids = [op["operationId"] for methods in paths.values() for op in methods.values() if isinstance(op, dict) and "operationId" in op]
+    assert len(ids) == len(set(ids))
+    assert {"create_meeting", "list_meetings", "retrieve_meeting", "get_room_availability", "get_convay_token", "create_gateway_token"} <= set(ids)
+    assert {"200", "201", "409", "422", "502", "503"} <= set(operation["responses"])
+    for methods in paths.values():
+        for op in methods.values():
+            assert all(p["name"].lower() != "idempotency-key" for p in op.get("parameters", []))

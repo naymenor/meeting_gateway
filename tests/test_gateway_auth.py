@@ -237,7 +237,7 @@ def test_admin_session_cannot_authenticate_lms(machine, django_user_model):
     assert api.get("/api/v1/meetings/").data["code"] == "INVALID_TOKEN"
 
 
-def test_write_only_can_register(machine, client_account):
+def test_write_only_can_create(machine, client_account, room, provider_success):
     from tests.test_api import PAYLOAD
 
     api, _ = machine

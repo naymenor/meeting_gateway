@@ -30,8 +30,8 @@ class RequestIDMiddleware:
                         "success": False,
                         "code": "NOT_FOUND"
                         if response.status_code == 404
-                        else "REQUEST_ERROR",
-                        "message": "Request could not be processed.",
+                        else "INTERNAL_ERROR" if response.status_code >= 500 else "REQUEST_ERROR",
+                        "message": "An internal error occurred." if response.status_code >= 500 else "Request could not be processed.",
                         "details": {},
                         "requestId": request.request_id,
                     },

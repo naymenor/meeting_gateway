@@ -8,6 +8,9 @@ from apps.convay.client import ProviderAuthResult, ProviderMeetingResult
 from apps.audit.models import AuditLog
 
 PAYLOAD = {
+    "roomId": "ROOM-01",
+    "startAt": "2026-09-25T17:00:00+06:00",
+    "endAt": "2026-09-25T18:00:00+06:00",
     "meetingTitle": "Physics",
     "teacher": {"id": "T-1", "name": "Teacher"},
     "batch": {"id": "B-1", "name": "Batch"},
@@ -16,7 +19,7 @@ PAYLOAD = {
 
 
 @pytest.mark.django_db
-def test_registration_naturally_reuses_class(api, client_account):
+def test_creation_naturally_reuses_class(api, client_account, room, provider_success):
     first = api.post("/api/v1/meetings/", PAYLOAD, format="json")
     assert first.status_code == 201, first.data
     replay = api.post(
@@ -59,7 +62,7 @@ def test_foreign_meeting(api, meeting):
     other = IntegrationClient.objects.create(name="Other")
     meeting.integration_client = other
     meeting.save()
-    for suffix in ["", "convay-token/", "create/", "cancel/"]:
+    for suffix in ["", "convay-token/"]:
         url = f"/api/v1/meetings/{meeting.pk}/" + suffix
         response = api.post(url, {}, format="json") if suffix else api.get(url)
         assert response.status_code == 404
@@ -90,6 +93,7 @@ def test_auth_and_scope(client_account):
 @pytest.mark.django_db
 def test_creation_token_and_natural_replay(api, meeting, room, times):
     payload = {
+        **PAYLOAD,
         "roomId": room.public_id,
         "startAt": times[0].isoformat(),
         "endAt": times[1].isoformat(),
@@ -114,13 +118,13 @@ def test_creation_token_and_natural_replay(api, meeting, room, times):
         ) as upstream,
     ):
         first = api.post(
-            f"/api/v1/meetings/{meeting.pk}/create/",
+            "/api/v1/meetings/",
             payload,
             format="json",
         )
         assert first.status_code == 201, first.data
         replay = api.post(
-            f"/api/v1/meetings/{meeting.pk}/create/",
+            "/api/v1/meetings/",
             payload,
             format="json",
         )
@@ -150,49 +154,24 @@ def test_creation_token_and_natural_replay(api, meeting, room, times):
 @pytest.mark.django_db
 def test_creation_requires_write_scope(api, client_account, meeting):
     client_account.scopes.remove("meeting:write")
-    response = api.post(f"/api/v1/meetings/{meeting.pk}/create/", {}, format="json")
+    response = api.post("/api/v1/meetings/", {}, format="json")
     assert response.status_code == 403
 
 
 @pytest.mark.django_db
 def test_naive_rejected(api, meeting):
     response = api.post(
-        f"/api/v1/meetings/{meeting.pk}/create/",
-        {"startAt": "2026-09-25T11:00:00", "endAt": "2026-09-25T12:00:00"},
+        "/api/v1/meetings/",
+        {**PAYLOAD, "startAt": "2026-09-25T11:00:00", "endAt": "2026-09-25T12:00:00"},
         format="json",
     )
     assert response.status_code == 400
 
 
 @pytest.mark.django_db
-def test_cancel_is_repeatable_and_cancelled_meeting_cannot_be_created(
-    api, meeting, room, times
-):
-    url = f"/api/v1/meetings/{meeting.pk}/cancel/"
-    first = api.post(url, {}, format="json")
-    second = api.post(url, {}, format="json")
-    assert first.status_code == second.status_code == 200
-    assert first.data["data"]["meetingInfo"]["status"] == "CANCELLED"
-    assert second.data["data"]["meetingInfo"]["status"] == "CANCELLED"
-    assert (
-        AuditLog.objects.filter(
-            action="meeting_cancelled", object_id=str(meeting.pk)
-        ).count()
-        == 1
-    )
-    with patch("apps.meetings.services.ConvayClient.start_meeting") as upstream:
-        create = api.post(
-            f"/api/v1/meetings/{meeting.pk}/create/",
-            {
-                "roomId": room.public_id,
-                "startAt": times[0].isoformat(),
-                "endAt": times[1].isoformat(),
-            },
-            format="json",
-        )
-    assert create.status_code == 409
-    assert create.data["code"] == "INVALID_STATE"
-    upstream.assert_not_called()
+def test_removed_endpoints(api, meeting):
+    for action in ("create", "cancel"):
+        assert api.post(f"/api/v1/meetings/{meeting.pk}/{action}/", {}, format="json").status_code == 404
 
 
 @pytest.mark.django_db

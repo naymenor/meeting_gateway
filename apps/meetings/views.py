@@ -13,18 +13,16 @@ from apps.convay.tokens import get_token
 from common.exceptions import GatewayError
 from .models import Meeting
 from .serializers import (
-    RegistrationSerializer,
-    BookingSerializer,
+    CreateMeetingSerializer,
     AvailabilitySerializer,
     SearchSerializer,
     ErrorResponseSerializer,
     MeetingResponseSerializer,
-    RegistrationResponseSerializer,
     SearchResponseSerializer,
     AvailabilityResponseSerializer,
     ConvayTokenResponseSerializer,
 )
-from .services import register, provision, representation, authorization, cancel
+from .services import register, provision, representation, authorization
 ERROR_RESPONSES = {
     400: OpenApiResponse(ErrorResponseSerializer, "Invalid request."),
     401: OpenApiResponse(
@@ -51,7 +49,6 @@ ERROR_RESPONSES = {
 REGISTRATION_REQUEST = {
     "meetingTitle": "API Test Physics",
     "teacher": {"id": "T-001", "name": "Test Teacher"},
-    "subject": {"id": "PHY-5054", "name": "Physics"},
     "batch": {"id": "B-001", "name": "Test Batch"},
     "class": {"id": "CLS-001", "date": "2026-09-24"},
 }
@@ -60,7 +57,6 @@ MEETING_DATA = {
     "classInfo": {
         "classId": "CLS-001",
         "teacher": {"id": "T-001", "name": "Test Teacher"},
-        "subject": {"id": "PHY-5054", "name": "Physics"},
         "batch": {"id": "B-001", "name": "Test Batch"},
     },
     "meetingInfo": {
@@ -112,106 +108,8 @@ def owned(request, pk):
 
 class MeetingListView(APIView):
     @extend_schema(
-        request=RegistrationSerializer,
-        responses={
-            200: OpenApiResponse(
-                RegistrationResponseSerializer,
-                "Existing meeting for this client and class.id.",
-            ),
-            201: RegistrationResponseSerializer,
-            **ERROR_RESPONSES,
-        },
-        description=(
-            "Register metadata without contacting Convay. Requires meeting:write. "
-            "The same client and class.id reuses the existing Gateway meeting "
-            "and returns 200; a new registration returns 201."
-        ),
-        examples=[
-            OpenApiExample(
-                "Meeting registration",
-                value=REGISTRATION_REQUEST,
-                request_only=True,
-            ),
-            OpenApiExample(
-                "Draft registration with room availability",
-                value={
-                    "success": True,
-                    "data": {**MEETING_DATA, "rooms": [ROOM_EXAMPLE]},
-                },
-                response_only=True,
-                status_codes=["200", "201"],
-            ),
-        ],
-    )
-    def post(self, request):
-        require_scope(request, "meeting:write")
-        serializer = RegistrationSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        meeting, created = register(request.user, serializer.validated_data)
-        data = representation(meeting)
-        data["rooms"] = availability(meeting.class_date)
-        return Response(
-            {"success": True, "data": data}, status=201 if created else 200
-        )
-
-    @extend_schema(
-        operation_id="meeting_search",
-        parameters=[SearchSerializer],
-        responses={200: SearchResponseSerializer, **ERROR_RESPONSES},
-        description="Search only the caller’s meetings. Requires meeting:read. No bearer tokens or sensitive URLs returned.",
-    )
-    def get(self, request):
-        require_scope(request, "meeting:read")
-        serializer = SearchSerializer(data=request.query_params)
-        serializer.is_valid(raise_exception=True)
-        values = serializer.validated_data.copy()
-        page, size = values.pop("page"), values.pop("page_size")
-        mapping = {
-            "teacher_name": "teacher_name__icontains",
-            "subject_name": "subject_name__icontains",
-            "room_id": "room__public_id",
-            "start_from": "start_at__gte",
-            "start_to": "start_at__lte",
-            "created_from": "created_at__gte",
-            "created_to": "created_at__lte",
-        }
-        query = (
-            Meeting.objects.filter(
-                integration_client=request.user,
-                **{mapping.get(k, k): v for k, v in values.items()},
-            )
-            .select_related("room")
-            .order_by("-created_at", "-id")
-        )
-        return Response(
-            {
-                "success": True,
-                "data": {
-                    "count": query.count(),
-                    "page": page,
-                    "pageSize": size,
-                    "results": [
-                        representation(m)
-                        for m in query[(page - 1) * size : page * size]
-                    ],
-                },
-            }
-        )
-
-
-class MeetingDetailView(APIView):
-    @extend_schema(
-        responses={200: MeetingResponseSerializer, **ERROR_RESPONSES},
-        description="Requires meeting:read.",
-    )
-    def get(self, request, pk):
-        require_scope(request, "meeting:read")
-        return Response({"success": True, "data": representation(owned(request, pk))})
-
-
-class MeetingCreateView(APIView):
-    @extend_schema(
-        request=BookingSerializer,
+        operation_id="create_meeting",
+        request=CreateMeetingSerializer,
         responses={
             200: OpenApiResponse(
                 MeetingResponseSerializer,
@@ -221,15 +119,24 @@ class MeetingCreateView(APIView):
             **ERROR_RESPONSES,
         },
         description=(
-            "Atomically reserve and create from DRAFT. Requires meeting:write. "
-            "A READY meeting is returned without another provider creation. "
-            "PROVISIONING and unresolved provider outcomes return 409. Convay "
-            "credentials are returned only with meeting:token. Omit roomId for "
-            "automatic allocation."
+            "Requires meeting:write. Obtain a Gateway Bearer token, check room availability, "
+            "select a room/time, then POST metadata and roomId/startAt/endAt here. "
+            "Availability is only a snapshot: Gateway atomically rechecks and reserves the "
+            "slot, authenticates the room and creates Convay before returning READY (201). "
+            "A duplicate client + class.id in READY/LIVE returns the existing meeting (200). "
+            "RESERVED/PROVISIONING returns 409 CREATION_IN_PROGRESS; unresolved provider "
+            "outcomes return 409 PROVIDER_RECONCILIATION_REQUIRED. Room conflicts return "
+            "409 ROOM_SLOT_CONFLICT; refresh availability and select another slot. "
+            "Timestamps must be timezone-aware and are stored in UTC. "
+            "Authorization and startMeetingUrl require meeting:token. Use convay-token "
+            "later for current authorization. ENDED returns 409 CLASS_ALREADY_COMPLETED; "
+            "FAILED returns 409 PREVIOUS_CREATION_FAILED; CANCELLED returns 409 CLASS_CANCELLED. "
+            "Unsupported legacy states or duplicate logical rows return 409 "
+            "EXISTING_MEETING_REQUIRES_REVIEW. These states never trigger provider creation."
         ),
         examples=[
             OpenApiExample(
-                "Meeting creation", value=CREATE_REQUEST, request_only=True
+                "Meeting creation", value={**REGISTRATION_REQUEST, **CREATE_REQUEST}, request_only=True
             ),
             OpenApiExample(
                 "Successful meeting creation",
@@ -301,12 +208,12 @@ class MeetingCreateView(APIView):
             ),
         ],
     )
-    def post(self, request, pk):
+    def post(self, request):
         require_scope(request, "meeting:write")
-        meeting = owned(request, pk)
-        serializer = BookingSerializer(data=request.data)
+        serializer = CreateMeetingSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         values = serializer.validated_data
+        meeting, _ = register(request.user, values)
         current, token = provision(meeting, values)
         created = token is not None
         if "meeting:token" in request.user.scopes:
@@ -321,8 +228,64 @@ class MeetingCreateView(APIView):
         )
 
 
+    @extend_schema(
+        operation_id="list_meetings",
+        parameters=[SearchSerializer],
+        responses={200: SearchResponseSerializer, **ERROR_RESPONSES},
+        description="Search only the caller’s meetings. Requires meeting:read. No bearer tokens or sensitive URLs returned.",
+    )
+    def get(self, request):
+        require_scope(request, "meeting:read")
+        serializer = SearchSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        values = serializer.validated_data.copy()
+        page, size = values.pop("page"), values.pop("page_size")
+        mapping = {
+            "teacher_name": "teacher_name__icontains",
+            "room_id": "room__public_id",
+            "start_from": "start_at__gte",
+            "start_to": "start_at__lte",
+            "created_from": "created_at__gte",
+            "created_to": "created_at__lte",
+        }
+        query = (
+            Meeting.objects.filter(
+                integration_client=request.user,
+                **{mapping.get(k, k): v for k, v in values.items()},
+            )
+            .select_related("room")
+            .order_by("-created_at", "-id")
+        )
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "count": query.count(),
+                    "page": page,
+                    "pageSize": size,
+                    "results": [
+                        representation(m)
+                        for m in query[(page - 1) * size : page * size]
+                    ],
+                },
+            }
+        )
+
+
+class MeetingDetailView(APIView):
+    @extend_schema(
+        operation_id="retrieve_meeting",
+        responses={200: MeetingResponseSerializer, **ERROR_RESPONSES},
+        description="Requires meeting:read.",
+    )
+    def get(self, request, pk):
+        require_scope(request, "meeting:read")
+        return Response({"success": True, "data": representation(owned(request, pk))})
+
+
 class MeetingTokenView(APIView):
     @extend_schema(
+        operation_id="get_convay_token",
         request=None,
         responses={200: ConvayTokenResponseSerializer, **ERROR_RESPONSES},
         description="Requires meeting:token. Uses Gateway UUID, never calendarId. Returns account-scoped access token, never refresh token.",
@@ -395,45 +358,12 @@ class MeetingTokenView(APIView):
         )
 
 
-class MeetingCancelView(APIView):
-    @extend_schema(
-        request=None,
-        responses={200: MeetingResponseSerializer, **ERROR_RESPONSES},
-        description=(
-            "Repeatable local cancellation. Requires meeting:cancel. An already "
-            "CANCELLED meeting is returned successfully; created/unknown provider "
-            "meetings require operational reconciliation."
-        ),
-        examples=[
-            OpenApiExample(
-                "Cancelled meeting",
-                value={
-                    "success": True,
-                    "data": {
-                        **MEETING_DATA,
-                        "meetingInfo": {
-                            **MEETING_DATA["meetingInfo"],
-                            "status": "CANCELLED",
-                        },
-                    },
-                },
-                response_only=True,
-                status_codes=["200"],
-            )
-        ],
-    )
-    def post(self, request, pk):
-        require_scope(request, "meeting:cancel")
-        meeting = owned(request, pk)
-        current = cancel(meeting)
-        return Response({"success": True, "data": representation(current)})
-
-
 class AvailabilityView(APIView):
     @extend_schema(
+        operation_id="get_room_availability",
         parameters=[AvailabilitySerializer],
         responses={200: AvailabilityResponseSerializer, **ERROR_RESPONSES},
-        description="Requires room:read. Occupancy only; other clients’ identifiers are never disclosed. Bounds include configured buffers.",
+        description="Requires room:read. Availability is a snapshot and is always rechecked atomically during POST /meetings/. Occupancy only; other clients’ identifiers are never disclosed. Bounds include configured buffers.",
         examples=[
             OpenApiExample(
                 "Room availability",

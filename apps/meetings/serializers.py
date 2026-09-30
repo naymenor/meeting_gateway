@@ -6,7 +6,9 @@ from rest_framework import serializers
 class StrictSerializer(serializers.Serializer):
     def to_internal_value(self, data):
         if isinstance(data, dict) and set(data) - set(self.fields):
-            raise serializers.ValidationError("Unknown fields are not permitted.")
+            raise serializers.ValidationError(
+                {"non_field_errors": ["Unknown fields are not permitted."]}
+            )
         return super().to_internal_value(data)
 
 
@@ -35,26 +37,12 @@ class ClassSerializer(StrictSerializer):
     date = serializers.DateField()
 
 
-class RegistrationSerializer(StrictSerializer):
+class CreateMeetingSerializer(StrictSerializer):
     meetingTitle = serializers.CharField(max_length=250)
     teacher = ReferenceSerializer()
-    subject = ReferenceSerializer(required=False)
     batch = ReferenceSerializer()
     class_info = ClassSerializer(source="class")
-    scheduleType = serializers.ChoiceField(
-        choices=["SCHEDULED", "INSTANT"], default="SCHEDULED"
-    )
-
-    def get_fields(self):
-        fields = super().get_fields()
-        field = fields.pop("class_info")
-        field.source = None
-        fields["class"] = field
-        return fields
-
-
-class BookingSerializer(StrictSerializer):
-    roomId = serializers.CharField(max_length=64, required=False)
+    roomId = serializers.CharField(max_length=64)
     startAt = AwareDateTimeField()
     endAt = AwareDateTimeField()
 
@@ -62,6 +50,13 @@ class BookingSerializer(StrictSerializer):
         if attrs["endAt"] <= attrs["startAt"]:
             raise serializers.ValidationError("endAt must be after startAt.")
         return attrs
+
+    def get_fields(self):
+        fields = super().get_fields()
+        field = fields.pop("class_info")
+        field.source = None
+        fields["class"] = field
+        return fields
 
 
 class AvailabilitySerializer(StrictSerializer):
@@ -83,8 +78,6 @@ class SearchSerializer(StrictSerializer):
     teacher_id = serializers.CharField(required=False)
     teacher_name = serializers.CharField(required=False)
     batch_id = serializers.CharField(required=False)
-    subject_id = serializers.CharField(required=False)
-    subject_name = serializers.CharField(required=False)
     room_id = serializers.CharField(required=False)
     provider_calendar_id = serializers.CharField(required=False)
     status = serializers.ChoiceField(
@@ -123,7 +116,6 @@ class EnvelopeSerializer(serializers.Serializer):
 class ClassInfoSerializer(serializers.Serializer):
     classId = serializers.CharField()
     teacher = ReferenceSerializer()
-    subject = ReferenceSerializer()
     batch = ReferenceSerializer()
 
 
@@ -190,18 +182,9 @@ class RoomAvailabilitySerializer(serializers.Serializer):
     available = serializers.BooleanField(required=False)
 
 
-class RegistrationDataSerializer(MeetingDataSerializer):
-    rooms = RoomAvailabilitySerializer(many=True)
-
-
 class MeetingResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField()
     data = MeetingDataSerializer()
-
-
-class RegistrationResponseSerializer(serializers.Serializer):
-    success = serializers.BooleanField()
-    data = RegistrationDataSerializer()
 
 
 class SearchDataSerializer(serializers.Serializer):

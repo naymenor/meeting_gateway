@@ -47,6 +47,7 @@ class TokenView(APIView):
         return 'Bearer realm="Meeting Gateway"'
 
     @extend_schema(
+        operation_id="create_gateway_token",
         auth=[],
         request=TokenRequestSerializer,
         responses={
@@ -77,7 +78,6 @@ class TokenView(APIView):
                             "meeting:read",
                             "meeting:token",
                             "room:read",
-                            "meeting:cancel",
                         ],
                     },
                 },

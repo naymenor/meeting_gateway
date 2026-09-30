@@ -71,10 +71,8 @@ def test_concurrent_duplicate_registration_creates_one_meeting():
     values = {
         "meetingTitle": "Physics",
         "teacher": {"id": "T-1", "name": "Teacher"},
-        "subject": {"id": "PHY", "name": "Physics"},
         "batch": {"id": "B-1", "name": "Batch"},
         "class": {"id": "CLS-CONCURRENT", "date": date(2026, 9, 25)},
-        "scheduleType": "SCHEDULED",
     }
     barrier = Barrier(10)
 

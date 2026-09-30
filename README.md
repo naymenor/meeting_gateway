@@ -1,6 +1,6 @@
 # Meeting Gateway
 
-Django 5.2 service for trusted LMS backends: register class metadata, inspect room occupancy, reserve a room without collisions, create a Convay meeting, and retrieve the account access token by Gateway Meeting UUID. Human administration uses Django Admin. The LMS performs subsequent Convay operations directly.
+Django 5.2 service for trusted LMS backends: inspect room occupancy, then submit class metadata and Room/time in one request that reserves safely and creates a Convay meeting, and retrieve the account access token by Gateway Meeting UUID. Human administration uses Django Admin. The LMS performs subsequent Convay operations directly.
 
 This implementation uses PostgreSQL exclusively, including its integration tests. No provider credentials are bundled. Provider traffic is mocked in the automated suite; confirmed live behavior and the remaining provider ambiguities are recorded separately in [contract notes](docs/convay-contract.md).
 
@@ -65,9 +65,7 @@ Models include Django users/groups, IntegrationClient, Room, MeetingConfigPreset
 | POST | `/api/v1/meetings/` | `meeting:write` |
 | GET | `/api/v1/meetings/` | `meeting:read` |
 | GET | `/api/v1/meetings/{uuid}/` | `meeting:read` |
-| POST | `/api/v1/meetings/{uuid}/create/` | `meeting:write` |
 | POST | `/api/v1/meetings/{uuid}/convay-token/` | `meeting:token` |
-| POST | `/api/v1/meetings/{uuid}/cancel/` | `meeting:cancel` |
 | GET | `/api/v1/rooms/availability/` | `room:read` |
 | GET | `/health/live/`, `/health/ready/` | None |
 | GET | `/api/schema/`, `/api/docs/` | Human staff session |
@@ -76,7 +74,7 @@ LMS authentication uses `POST /api/v1/auth/token/` with JSON `client_id` and `cl
 
 Secrets remain hashed and are shown once through Super Admin creation/rotation. Secret rotation invalidates existing Gateway tokens; deactivation and IP-allowlist changes are enforced immediately. Tokens use the intersection of their issued scopes and the client's current scopes. Added scopes require a new token. Signing uses `GATEWAY_JWT_SIGNING_KEY` when supplied, otherwise `DJANGO_SECRET_KEY`; use a strong private key value consistently across web instances. Rotating that signing key invalidates all Gateway tokens. No refresh-token or parallel Basic scheme is implemented.
 
-Meeting registration and creation require `meeting:write`. Creation includes Convay authorization and its sensitive start URL only if the caller also has `meeting:token`. The public API requires no idempotency header: registration reuses the meeting identified by client plus `class.id`, creation returns an existing READY result, and cancellation is repeatable.
+Meeting creation requires `meeting:write`. Check room availability, select a Room/time, then POST metadata plus required `roomId`, `startAt` and `endAt` to `/api/v1/meetings/`. Availability is a snapshot: creation atomically rechecks the slot and returns the completed READY meeting (201). Creation includes Convay authorization and its sensitive start URL only with `meeting:token`. No idempotency header is required. Client plus `class.id` identifies the meeting: READY/LIVE duplicates return 200; in-progress and unresolved provider states return 409. Academic subject data is absent from the public contract. V1 has no public cancellation operation.
 
 See [workflow](docs/api-workflow.md) for fake examples and error behavior.
 
@@ -102,7 +100,7 @@ The deployment check intentionally reports `security.W021` because browser HSTS 
 - One simultaneous booking per room is deliberately enforced by PostgreSQL; values greater than one are rejected.
 - IMMEDIATE provisioning is implemented. JIT and MANUAL are modeled for future work but are not exposed as selectable API modes.
 - Scheduled Convay creation is gated pending timestamp-field confirmation. LMS scheduled classes using instant Convay meetings are supported.
-- No Convay reconciliation, termination, join-link, or refresh endpoint has been invented. Operators verify remote state and use the audited “Confirm provider ended/absent” action before releasing created or ambiguous meetings. LMS cancellation is local and rejects those states.
+- No Convay reconciliation, termination, join-link, or refresh endpoint has been invented. Operators verify remote state and use the audited “Confirm provider ended/absent” action before releasing created or ambiguous meetings. Cancellation remains internal only.
 - Confirmed creation behavior uses Convay `title` and accepts `calendarId`, a non-empty scheme-less panel domain such as `meet.convay.com`, and a trusted HTTPS `startMeetingUrl`. Unconfirmed provider behavior remains listed in the contract notes.
 - Convay start URLs must use HTTPS and a hostname covered by `CONVAY_TRUSTED_HOST_SUFFIXES` (default `convay.com`); subdomains such as `meet.convay.com` are accepted.
 - A process crash during creation leaves state-based duplicate protection in place. Stale provisioning is marked unknown by Beat and requires reconciliation before another provider creation.

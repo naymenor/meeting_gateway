@@ -52,3 +52,19 @@ def api(client_account):
     client = APIClient()
     client.force_authenticate(user=client_account)
     return client
+
+
+@pytest.fixture
+def provider_success():
+    from unittest.mock import patch
+    from apps.convay.client import ProviderAuthResult, ProviderMeetingResult
+
+    with (
+        patch("apps.meetings.services.get_token", return_value=ProviderAuthResult("fake-access")),
+        patch("apps.meetings.views.get_token", return_value=ProviderAuthResult("fake-access")),
+        patch("apps.meetings.services.ConvayClient.start_meeting", return_value=ProviderMeetingResult(
+            calendar_id="fake-calendar", meeting_panel_address="meet.convay.com",
+            start_meeting_url="https://meet.convay.com/start?jwt=fake",
+        )) as upstream,
+    ):
+        yield upstream
