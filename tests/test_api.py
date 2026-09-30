@@ -8,7 +8,6 @@ from apps.convay.client import ProviderAuthResult, ProviderMeetingResult
 from apps.audit.models import AuditLog
 
 PAYLOAD = {
-    "roomId": "ROOM-01",
     "startAt": "2026-09-25T17:00:00+06:00",
     "endAt": "2026-09-25T18:00:00+06:00",
     "meetingTitle": "Physics",
@@ -94,7 +93,6 @@ def test_auth_and_scope(client_account):
 def test_creation_token_and_natural_replay(api, meeting, room, times):
     payload = {
         **PAYLOAD,
-        "roomId": room.public_id,
         "startAt": times[0].isoformat(),
         "endAt": times[1].isoformat(),
     }

@@ -87,14 +87,9 @@ def provision(meeting, values):
                 "CLASS_DATE_MISMATCH",
                 "The start date in the service timezone must match the class date.",
             )
-        if values.get("roomId"):
-            reserved = RoomAllocator.reserve_specific_room(
-                locked, values["roomId"], values["startAt"], values["endAt"]
-            )
-        else:
-            reserved = RoomAllocator.allocate_any_room(
-                locked, values["startAt"], values["endAt"]
-            )
+        reserved = RoomAllocator.allocate_any_room(
+            locked, values["startAt"], values["endAt"]
+        )
         payload = resolve_config(reserved.integration_client, reserved.room)
         # meetingTitle is the Gateway/LMS field; Convay's contract requires title.
         payload.pop("meetingTitle", None)
@@ -247,9 +242,6 @@ def representation(meeting, token=None):
             "endAt": meeting.end_at.isoformat() if meeting.end_at else None,
             "status": meeting.status,
         },
-        "roomInfo": {"roomId": meeting.room.public_id, "roomName": meeting.room.name}
-        if meeting.room_id
-        else None,
         "convay": {
             "meetingType": meeting.provider_meeting_type.lower(),
             "calendarId": meeting.provider_calendar_id,

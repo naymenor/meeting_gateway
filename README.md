@@ -1,6 +1,6 @@
 # Meeting Gateway
 
-Django 5.2 service for trusted LMS backends: inspect room occupancy, then submit class metadata and Room/time in one request that reserves safely and creates a Convay meeting, and retrieve the account access token by Gateway Meeting UUID. Human administration uses Django Admin. The LMS performs subsequent Convay operations directly.
+Django 5.2 service for trusted LMS backends: check aggregate capacity, then submit class metadata and a time interval in one request that allocates capacity safely and creates a Convay meeting, and retrieve the account access token by Gateway Meeting UUID. Human administration uses Django Admin. The LMS performs subsequent Convay operations directly.
 
 This implementation uses PostgreSQL exclusively, including its integration tests. No provider credentials are bundled. Provider traffic is mocked in the automated suite; confirmed live behavior and the remaining provider ambiguities are recorded separately in [contract notes](docs/convay-contract.md).
 
@@ -74,7 +74,7 @@ LMS authentication uses `POST /api/v1/auth/token/` with JSON `client_id` and `cl
 
 Secrets remain hashed and are shown once through Super Admin creation/rotation. Secret rotation invalidates existing Gateway tokens; deactivation and IP-allowlist changes are enforced immediately. Tokens use the intersection of their issued scopes and the client's current scopes. Added scopes require a new token. Signing uses `GATEWAY_JWT_SIGNING_KEY` when supplied, otherwise `DJANGO_SECRET_KEY`; use a strong private key value consistently across web instances. Rotating that signing key invalidates all Gateway tokens. No refresh-token or parallel Basic scheme is implemented.
 
-Meeting creation requires `meeting:write`. Check room availability, select a Room/time, then POST metadata plus required `roomId`, `startAt` and `endAt` to `/api/v1/meetings/`. Availability is a snapshot: creation atomically rechecks the slot and returns the completed READY meeting (201). Creation includes Convay authorization and its sensitive start URL only with `meeting:token`. No idempotency header is required. Client plus `class.id` identifies the meeting: READY/LIVE duplicates return 200; in-progress and unresolved provider states return 409. Academic subject data is absent from the public contract. V1 has no public cancellation operation.
+Meeting creation requires `meeting:write`. Check aggregate availability using required `start_at`/`end_at`, choose a time, then POST metadata plus required `startAt` and `endAt` to `/api/v1/meetings/`. Room/license allocation is handled automatically by the Meeting Gateway. Availability is a point-in-time snapshot: creation atomically rechecks capacity and returns the completed READY meeting (201). Creation includes Convay authorization and its sensitive start URL only with `meeting:token`. No idempotency header is required. Client plus `class.id` identifies the meeting: READY/LIVE duplicates return 200; in-progress and unresolved provider states return 409. Academic subject data and room identities are absent from the public contract. No capacity returns 409 `NO_CAPACITY_AVAILABLE`. V1 has no public cancellation operation.
 
 See [workflow](docs/api-workflow.md) for fake examples and error behavior.
 
@@ -105,3 +105,5 @@ The deployment check intentionally reports `security.W021` because browser HSTS 
 - Convay start URLs must use HTTPS and a hostname covered by `CONVAY_TRUSTED_HOST_SUFFIXES` (default `convay.com`); subdomains such as `meet.convay.com` are accepted.
 - A process crash during creation leaves state-based duplicate protection in place. Stale provisioning is marked unknown by Beat and requires reconciliation before another provider creation.
 - Rate limiting is Redis-backed per socket IP. Put credential brute-force protection and request-size limits at the ingress too. Audit retention, secret-manager integration, and monitoring policies are deployment responsibilities.
+
+Internal license allocation uses ascending Room priority and public ID as the tie breaker. Configure priorities 1, 2, 3, 4 for a four-license pool; names do not affect ordering. Only active, credential-configured rooms with a valid instant provider configuration, free buffered interval and remaining provider capacity are eligible. Unreadable credentials and unsupported scheduled configurations are skipped. These settings remain available to administrators, never the LMS.

@@ -22,7 +22,6 @@ def test_create_with_write_scope_and_safe_replay(
     url = "/api/v1/meetings/"
     payload = {
         **PAYLOAD,
-        "roomId": room.public_id,
         "startAt": times[0].isoformat(),
         "endAt": times[1].isoformat(),
     }
@@ -65,7 +64,7 @@ def test_openapi_has_bearer_and_public_exchange():
     operation = paths["/api/v1/meetings/"]["post"]
     request_schema = operation["requestBody"]["content"]["application/json"]["schema"]
     creation = schema["components"]["schemas"][request_schema["$ref"].split("/")[-1]]
-    assert set(creation["properties"]) == {"meetingTitle", "teacher", "batch", "class", "roomId", "startAt", "endAt"}
+    assert set(creation["properties"]) == {"meetingTitle", "teacher", "batch", "class", "startAt", "endAt"}
     assert set(creation["required"]) == set(creation["properties"])
     assert "subject" not in str(schema)
     assert not any(path.endswith(("/create/", "/cancel/")) for path in paths)
@@ -74,8 +73,13 @@ def test_openapi_has_bearer_and_public_exchange():
     assert "/health/live/" in paths and "/health/ready/" in paths
     ids = [op["operationId"] for methods in paths.values() for op in methods.values() if isinstance(op, dict) and "operationId" in op]
     assert len(ids) == len(set(ids))
-    assert {"create_meeting", "list_meetings", "retrieve_meeting", "get_room_availability", "get_convay_token", "create_gateway_token"} <= set(ids)
+    assert {"create_meeting", "list_meetings", "retrieve_meeting", "check_meeting_availability", "get_convay_token", "create_gateway_token"} <= set(ids)
     assert {"200", "201", "409", "422", "502", "503"} <= set(operation["responses"])
     for methods in paths.values():
         for op in methods.values():
             assert all(p["name"].lower() != "idempotency-key" for p in op.get("parameters", []))
+
+    assert not any(value in str(schema) for value in ("roomId", "roomInfo", "roomName", "room_id"))
+    availability = paths["/api/v1/rooms/availability/"]["get"]
+    assert {p["name"] for p in availability["parameters"]} == {"start_at", "end_at"}
+    assert all(p["required"] for p in availability["parameters"])

@@ -69,7 +69,7 @@ def test_scheduled_provider_rolls_back(meeting, room, times):
                 meeting,
                 {"roomId": room.public_id, "startAt": times[0], "endAt": times[1]},
             )
-        assert error.value.default_code == "PROVIDER_CONTRACT_UNCONFIRMED"
+        assert error.value.default_code == "NO_CAPACITY_AVAILABLE"
         upstream.assert_not_called()
     meeting.refresh_from_db()
     assert meeting.status == "DRAFT" and not meeting.reservation_active

@@ -48,7 +48,7 @@ def test_fifty_requests_five_rooms():
                 )
                 return str(result.room_id)
             except GatewayError as exc:
-                assert exc.default_code == "NO_ROOM_CAPACITY"
+                assert exc.default_code == "NO_CAPACITY_AVAILABLE"
                 return None
         finally:
             connections.close_all()

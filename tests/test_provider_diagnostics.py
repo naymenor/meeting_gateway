@@ -347,7 +347,6 @@ def test_request_id_in_provider_response_django_log_and_audit(
                 "/api/v1/meetings/",
                 {
                     **PAYLOAD,
-                    "roomId": room.public_id,
                     "startAt": times[0].isoformat(),
                     "endAt": times[1].isoformat(),
                 },
@@ -370,7 +369,6 @@ def test_request_id_in_provider_response_django_log_and_audit(
         "/api/v1/meetings/",
         {
             **PAYLOAD,
-            "roomId": room.public_id,
             "startAt": times[0].isoformat(),
             "endAt": times[1].isoformat(),
         },
@@ -518,7 +516,6 @@ def test_known_creation_with_invalid_local_url_preserves_identifiers(
                 meeting,
                 {
                     **PAYLOAD,
-                    "roomId": room.public_id,
                     "startAt": times[0],
                     "endAt": times[1],
                 },

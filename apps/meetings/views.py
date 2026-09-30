@@ -67,7 +67,6 @@ MEETING_DATA = {
         "endAt": None,
         "status": "DRAFT",
     },
-    "roomInfo": None,
     "convay": {
         "meetingType": "instant",
         "calendarId": None,
@@ -75,19 +74,7 @@ MEETING_DATA = {
     },
     "createdAt": "2026-09-24T10:00:00+06:00",
 }
-ROOM_EXAMPLE = {
-    "roomId": "ROOM-01",
-    "roomName": "Primary Convay Room",
-    "bookedSlots": [
-        {
-            "startAt": "2026-09-24T14:00:00+06:00",
-            "endAt": "2026-09-24T15:00:00+06:00",
-            "status": "BOOKED",
-        }
-    ],
-}
 CREATE_REQUEST = {
-    "roomId": "ROOM-01",
     "startAt": "2026-09-24T17:00:00+06:00",
     "endAt": "2026-09-24T18:00:00+06:00",
 }
@@ -119,14 +106,15 @@ class MeetingListView(APIView):
             **ERROR_RESPONSES,
         },
         description=(
-            "Requires meeting:write. Obtain a Gateway Bearer token, check room availability, "
-            "select a room/time, then POST metadata and roomId/startAt/endAt here. "
+            "Requires meeting:write. Room/license allocation is handled automatically by the Meeting Gateway. "
+            "Obtain a Gateway Bearer token, check availability, "
+            "choose a time, then POST metadata and startAt/endAt here. "
             "Availability is only a snapshot: Gateway atomically rechecks and reserves the "
-            "slot, authenticates the room and creates Convay before returning READY (201). "
+            "capacity, authenticates internally and creates Convay before returning READY (201). "
             "A duplicate client + class.id in READY/LIVE returns the existing meeting (200). "
             "RESERVED/PROVISIONING returns 409 CREATION_IN_PROGRESS; unresolved provider "
-            "outcomes return 409 PROVIDER_RECONCILIATION_REQUIRED. Room conflicts return "
-            "409 ROOM_SLOT_CONFLICT; refresh availability and select another slot. "
+            "outcomes return 409 PROVIDER_RECONCILIATION_REQUIRED. Exhausted capacity returns "
+            "409 NO_CAPACITY_AVAILABLE; refresh availability and select another time. "
             "Timestamps must be timezone-aware and are stored in UTC. "
             "Authorization and startMeetingUrl require meeting:token. Use convay-token "
             "later for current authorization. ENDED returns 409 CLASS_ALREADY_COMPLETED; "
@@ -150,10 +138,6 @@ class MeetingListView(APIView):
                             "endAt": CREATE_REQUEST["endAt"],
                             "status": "READY",
                         },
-                        "roomInfo": {
-                            "roomId": "ROOM-01",
-                            "roomName": "Primary Convay Room",
-                        },
                         "convay": {
                             "meetingType": "instant",
                             "calendarId": "fake-calendar-id",
@@ -171,11 +155,11 @@ class MeetingListView(APIView):
                 status_codes=["200", "201"],
             ),
             OpenApiExample(
-                "Slot conflict",
+                "No capacity",
                 value={
                     "success": False,
-                    "code": "ROOM_SLOT_CONFLICT",
-                    "message": "The selected room is no longer available for this time.",
+                    "code": "NO_CAPACITY_AVAILABLE",
+                    "message": "No meeting capacity is available for the requested time.",
                     "details": {},
                     "requestId": "22222222-2222-4222-8222-222222222222",
                 },
@@ -242,7 +226,6 @@ class MeetingListView(APIView):
         page, size = values.pop("page"), values.pop("page_size")
         mapping = {
             "teacher_name": "teacher_name__icontains",
-            "room_id": "room__public_id",
             "start_from": "start_at__gte",
             "start_to": "start_at__lte",
             "created_from": "created_at__gte",
@@ -296,10 +279,6 @@ class MeetingTokenView(APIView):
                     "success": True,
                     "data": {
                         "id": "11111111-1111-4111-8111-111111111111",
-                        "roomInfo": {
-                            "roomId": "ROOM-01",
-                            "roomName": "Primary Convay Room",
-                        },
                         "convay": {
                             "calendarId": "fake-calendar-id",
                             "authorization": {
@@ -345,10 +324,6 @@ class MeetingTokenView(APIView):
                 "success": True,
                 "data": {
                     "id": str(meeting.pk),
-                    "roomInfo": {
-                        "roomId": meeting.room.public_id,
-                        "roomName": meeting.room.name,
-                    },
                     "convay": {
                         "calendarId": meeting.provider_calendar_id,
                         "authorization": authorization(token),
@@ -360,16 +335,16 @@ class MeetingTokenView(APIView):
 
 class AvailabilityView(APIView):
     @extend_schema(
-        operation_id="get_room_availability",
+        operation_id="check_meeting_availability",
         parameters=[AvailabilitySerializer],
         responses={200: AvailabilityResponseSerializer, **ERROR_RESPONSES},
-        description="Requires room:read. Availability is a snapshot and is always rechecked atomically during POST /meetings/. Occupancy only; other clients’ identifiers are never disclosed. Bounds include configured buffers.",
+        description="Requires room:read and timezone-aware start_at/end_at with end_at > start_at. Room/license allocation is handled automatically by the Meeting Gateway. Availability is a point-in-time snapshot and is atomically revalidated when the meeting is created. Checks buffers, internal configuration and provider limits. Unavailable capacity returns 200 with available=false.",
         examples=[
             OpenApiExample(
-                "Room availability",
+                "Meeting availability",
                 value={
                     "success": True,
-                    "data": {"date": "2026-09-24", "rooms": [ROOM_EXAMPLE]},
+                    "data": {"startAt": "2026-09-30T10:00:00Z", "endAt": "2026-09-30T11:00:00Z", "available": True},
                 },
                 response_only=True,
                 status_codes=["200"],
@@ -384,11 +359,6 @@ class AvailabilityView(APIView):
         return Response(
             {
                 "success": True,
-                "data": {
-                    "date": values["date"].isoformat(),
-                    "rooms": availability(
-                        values["date"], values.get("start_at"), values.get("end_at")
-                    ),
-                },
+                "data": availability(request.user, values["start_at"], values["end_at"]),
             }
         )

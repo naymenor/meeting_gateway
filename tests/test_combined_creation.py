@@ -15,9 +15,9 @@ from tests.test_api import PAYLOAD
 @pytest.mark.django_db
 def test_new_creation_and_snapshot_conflict(api, room, provider_success):
     availability = api.get('/api/v1/rooms/availability/', {
-        'date': '2026-09-25', 'start_at': PAYLOAD['startAt'], 'end_at': PAYLOAD['endAt'],
+        'start_at': PAYLOAD['startAt'], 'end_at': PAYLOAD['endAt'],
     })
-    assert availability.data['data']['rooms'][0]['available'] is True
+    assert availability.data['data']['available'] is True
     first = api.post('/api/v1/meetings/', PAYLOAD, format='json')
     assert first.status_code == 201
     data = first.data['data']
@@ -30,7 +30,7 @@ def test_new_creation_and_snapshot_conflict(api, room, provider_success):
         **PAYLOAD, 'class': {**PAYLOAD['class'], 'id': 'CLS-2'},
     }, format='json')
     assert second.status_code == 409
-    assert second.data['code'] == 'ROOM_SLOT_CONFLICT'
+    assert second.data['code'] == 'NO_CAPACITY_AVAILABLE'
     assert provider_success.call_count == 1
 
 
@@ -122,7 +122,7 @@ def test_concurrent_combined_posts(client_account, room, same_class):
             release.set()
     assert sorted(status for status, _ in results) == [201, 409]
     conflict = next(data for status, data in results if status == 409)
-    assert conflict['code'] == ('CREATION_IN_PROGRESS' if same_class else 'ROOM_SLOT_CONFLICT')
+    assert conflict['code'] == ('CREATION_IN_PROGRESS' if same_class else 'NO_CAPACITY_AVAILABLE')
     assert upstream.call_count == 1
     assert Meeting.objects.filter(reservation_active=True).count() == 1
     assert Meeting.objects.count() == (1 if same_class else 2)

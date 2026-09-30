@@ -51,7 +51,7 @@ def test_specific_adjacent_overlap(meeting, room, times, client_account):
         external_class_id="CLS-2",
         class_date=start.date(),
     )
-    with pytest.raises(GatewayError, match="no longer available"):
+    with pytest.raises(GatewayError, match="Internal capacity is unavailable"):
         RoomAllocator.reserve_specific_room(
             second, room.public_id, start + timedelta(minutes=30), end
         )
@@ -90,9 +90,8 @@ def test_inactive_and_auto(meeting, room, times):
 @pytest.mark.django_db
 def test_availability_private(meeting, room, times):
     RoomAllocator.reserve_specific_room(meeting, room.public_id, *times)
-    data = availability(times[0].date(), *times)
-    assert data[0]["available"] is False
-    assert data[0]["bookedSlots"][0]["status"] == "BOOKED"
+    data = availability(meeting.integration_client, *times)
+    assert data["available"] is False
     serialized = json.dumps(data)
     for secret in (
         room.username,

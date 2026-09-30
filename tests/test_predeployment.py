@@ -62,7 +62,7 @@ def test_overlap_boundary_and_ready_replay(api, room, settings, provider_success
     assert first.status_code == 201
     data = first.data['data']
     assert data['meetingInfo']['status'] == 'READY'
-    assert data['roomInfo']['roomId'] == room.public_id
+    assert 'roomInfo' not in data
     assert data['convay']['meetingPanelAddress']
     assert data['convay']['authorization']['accessToken']
     assert data['convay']['startMeetingUrl']
@@ -77,7 +77,7 @@ def test_overlap_boundary_and_ready_replay(api, room, settings, provider_success
         'startAt': '2026-09-25T17:30:00+06:00', 'endAt': '2026-09-25T18:30:00+06:00',
     }, format='json')
     assert conflict.status_code == 409
-    assert conflict.data['code'] == 'ROOM_SLOT_CONFLICT'
+    assert conflict.data['code'] == 'NO_CAPACITY_AVAILABLE'
     assert provider_success.call_count == 1
     boundary = api.post('/api/v1/meetings/', {
         **PAYLOAD, 'class': {**PAYLOAD['class'], 'id': 'boundary'},

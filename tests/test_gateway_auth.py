@@ -164,12 +164,12 @@ def test_live_scope_changes(machine, client_account):
     client_account.save()
     authorize(api, issue_token(client_account))
     assert api.get("/api/v1/meetings/").status_code == 200
-    response = api.get("/api/v1/rooms/availability/?date=2026-09-25")
+    response = api.get("/api/v1/rooms/availability/?start_at=2026-09-25T11:00:00Z&end_at=2026-09-25T12:00:00Z")
     assert response.status_code == 403 and response.data["code"] == "INSUFFICIENT_SCOPE"
     client_account.scopes = ["room:read"]
     client_account.save()
     assert api.get("/api/v1/meetings/").status_code == 403
-    assert api.get("/api/v1/rooms/availability/?date=2026-09-25").status_code == 403
+    assert api.get("/api/v1/rooms/availability/?start_at=2026-09-25T11:00:00Z&end_at=2026-09-25T12:00:00Z").status_code == 403
 
 
 @pytest.mark.parametrize("change", ["rotate", "deactivate"])

@@ -22,7 +22,7 @@ class AwareDateTimeField(serializers.DateTimeField):
                 or parsed.utcoffset() is None
             ):
                 raise ValueError
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             raise serializers.ValidationError("Use timezone-aware ISO-8601.")
         return super().to_internal_value(value)
 
@@ -42,7 +42,6 @@ class CreateMeetingSerializer(StrictSerializer):
     teacher = ReferenceSerializer()
     batch = ReferenceSerializer()
     class_info = ClassSerializer(source="class")
-    roomId = serializers.CharField(max_length=64)
     startAt = AwareDateTimeField()
     endAt = AwareDateTimeField()
 
@@ -60,14 +59,11 @@ class CreateMeetingSerializer(StrictSerializer):
 
 
 class AvailabilitySerializer(StrictSerializer):
-    date = serializers.DateField()
-    start_at = AwareDateTimeField(required=False)
-    end_at = AwareDateTimeField(required=False)
+    start_at = AwareDateTimeField()
+    end_at = AwareDateTimeField()
 
     def validate(self, attrs):
-        if ("start_at" in attrs) != ("end_at" in attrs):
-            raise serializers.ValidationError("Provide both interval endpoints.")
-        if "start_at" in attrs and attrs["end_at"] <= attrs["start_at"]:
+        if attrs["end_at"] <= attrs["start_at"]:
             raise serializers.ValidationError("End must be after start.")
         return attrs
 
@@ -78,7 +74,6 @@ class SearchSerializer(StrictSerializer):
     teacher_id = serializers.CharField(required=False)
     teacher_name = serializers.CharField(required=False)
     batch_id = serializers.CharField(required=False)
-    room_id = serializers.CharField(required=False)
     provider_calendar_id = serializers.CharField(required=False)
     status = serializers.ChoiceField(
         choices=[
@@ -141,11 +136,6 @@ class MeetingInfoSerializer(serializers.Serializer):
     )
 
 
-class RoomInfoSerializer(serializers.Serializer):
-    roomId = serializers.CharField()
-    roomName = serializers.CharField()
-
-
 class ProviderAuthorizationSerializer(serializers.Serializer):
     accessToken = serializers.CharField()
     tokenType = serializers.CharField()
@@ -164,22 +154,8 @@ class MeetingDataSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     classInfo = ClassInfoSerializer()
     meetingInfo = MeetingInfoSerializer()
-    roomInfo = RoomInfoSerializer(allow_null=True)
     convay = ConvayInfoSerializer()
     createdAt = serializers.DateTimeField()
-
-
-class BookedSlotSerializer(serializers.Serializer):
-    startAt = serializers.DateTimeField()
-    endAt = serializers.DateTimeField()
-    status = serializers.ChoiceField(choices=["BOOKED"])
-
-
-class RoomAvailabilitySerializer(serializers.Serializer):
-    roomId = serializers.CharField()
-    roomName = serializers.CharField()
-    bookedSlots = BookedSlotSerializer(many=True)
-    available = serializers.BooleanField(required=False)
 
 
 class MeetingResponseSerializer(serializers.Serializer):
@@ -200,8 +176,9 @@ class SearchResponseSerializer(serializers.Serializer):
 
 
 class AvailabilityDataSerializer(serializers.Serializer):
-    date = serializers.DateField()
-    rooms = RoomAvailabilitySerializer(many=True)
+    startAt = serializers.DateTimeField()
+    endAt = serializers.DateTimeField()
+    available = serializers.BooleanField()
 
 
 class AvailabilityResponseSerializer(serializers.Serializer):
@@ -216,7 +193,6 @@ class ConvayTokenInfoSerializer(serializers.Serializer):
 
 class ConvayTokenDataSerializer(serializers.Serializer):
     id = serializers.UUIDField()
-    roomInfo = RoomInfoSerializer()
     convay = ConvayTokenInfoSerializer()
 
 
