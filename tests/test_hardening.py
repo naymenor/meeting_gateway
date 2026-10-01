@@ -108,7 +108,7 @@ def test_auth_failure_releases_reservation(meeting, room, times):
             )
         create.assert_not_called()
     meeting.refresh_from_db()
-    assert meeting.status == "FAILED"
+    assert meeting.status == "NON_RETRYABLE_FAILED"
     assert not meeting.reservation_active
 
 

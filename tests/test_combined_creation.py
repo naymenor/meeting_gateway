@@ -120,7 +120,10 @@ def test_concurrent_combined_posts(client_account, room, same_class):
             results = [future.result(20) for future in futures]
         finally:
             release.set()
-    assert sorted(status for status, _ in results) == [201, 409]
+    # Either request may claim the committed draft. Completing a row created
+    # by the other request returns 200; the creator returns 201 if it wins.
+    statuses = sorted(status for status, _ in results)
+    assert statuses in ([[200, 409], [201, 409]] if same_class else [[201, 409]])
     conflict = next(data for status, data in results if status == 409)
     assert conflict['code'] == ('CREATION_IN_PROGRESS' if same_class else 'NO_CAPACITY_AVAILABLE')
     assert upstream.call_count == 1

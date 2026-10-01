@@ -29,17 +29,20 @@ stateDiagram-v2
     RESERVED --> PROVISIONING: payload snapshot committed
     PROVISIONING --> READY: confirmed provider response
     PROVISIONING --> PROVIDER_RESPONSE_INVALID: calendarId confirmed, local response validation failed
-    PROVISIONING --> FAILED: known authentication or authorization failure
+    PROVISIONING --> NON_RETRYABLE_FAILED: definite permanent rejection
+    PROVISIONING --> RETRYABLE_FAILED: safe temporary failure
+    RETRYABLE_FAILED --> PROVISIONING: identical scheduler retry
     PROVISIONING --> PROVIDER_STATE_UNKNOWN: timeout, malformed result, crash
     DRAFT --> CANCELLED: local cancellation
     RESERVED --> CANCELLED: local cancellation
-    FAILED --> CANCELLED: local cancellation
+    NON_RETRYABLE_FAILED --> CANCELLED: local cancellation
+    RETRYABLE_FAILED --> CANCELLED: local cancellation
     READY --> ENDED: operator confirms provider ended
     PROVIDER_STATE_UNKNOWN --> ENDED: operator confirms provider ended or absent
     PROVIDER_RESPONSE_INVALID --> ENDED: operator confirms provider ended
 ```
 
-LIVE is reserved for future confirmed provider lifecycle integration. No arbitrary status editing is exposed. External calls happen after the reservation transaction commits; locks are not held for upstream HTTP. The only automatic creation retry is one attempt after a confirmed 401, cached-token invalidation, and successful re-authentication. Definite 4xx rejections fail cleanly; 5xx and uncertain transmission outcomes remain unknown. Ambiguous responses retain their booking. Beat flags stale PROVISIONING rows without making network calls. A successful late response can safely populate the original row because operators cannot release a PROVISIONING row; operational reconciliation of UNKNOWN must wait until the creating request has finished.
+LIVE is reserved for future confirmed provider lifecycle integration. No arbitrary status editing is exposed. External calls happen after the reservation transaction commits; locks are not held for upstream HTTP. Within one request, creation retries once after a confirmed 401, cached-token invalidation, and successful re-authentication. A later identical scheduler POST resumes RETRYABLE_FAILED under a row lock using the original row, payload and retained reservation. Original request fields are immutable. Definite 4xx rejections fail cleanly; 5xx and uncertain transmission outcomes remain unknown. Ambiguous responses retain their booking. Beat flags stale PROVISIONING rows without making network calls. A successful late response can safely populate the original row because operators cannot release a PROVISIONING row; operational reconciliation of UNKNOWN must wait until the creating request has finished.
 
 Scheduling concepts stay independent: `schedule_type=SCHEDULED`, `provider_meeting_type=INSTANT`, `provision_strategy=IMMEDIATE` is the normal setup. Payload hierarchy is system preset, integration preset, then room override, with nested configuration flags merged. Per-meeting arbitrary provider JSON is rejected. Meeting-specific override support is disabled. Validated presets may hold `instant` or `scheduled`, but scheduled requests are gated until the provider timestamp contract is established.
 

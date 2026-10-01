@@ -27,6 +27,8 @@ def register(client, values):
                 "batch_id": values["batch"]["id"],
                 "batch_name": values["batch"]["name"],
                 "schedule_type": values.get("scheduleType", "SCHEDULED"),
+                "start_at": values.get("startAt"),
+                "end_at": values.get("endAt"),
             },
         )
     except Meeting.MultipleObjectsReturned:
@@ -44,7 +46,20 @@ def register(client, values):
     if created:
         audit("meeting_draft_created", meeting, client=client)
     else:
-        audit("meeting_registration_reused", meeting, client=client)
+        expected = {
+            "meeting_title": values["meetingTitle"],
+            "teacher_id": values["teacher"]["id"],
+            "teacher_name": values["teacher"]["name"],
+            "batch_id": values["batch"]["id"],
+            "batch_name": values["batch"]["name"],
+            "class_date": values["class"]["date"],
+        }
+        for field, key in (("start_at", "startAt"), ("end_at", "endAt")):
+            if getattr(meeting, field) is not None:
+                expected[field] = values.get(key)
+        if any(getattr(meeting, field) != value for field, value in expected.items()):
+            audit("existing_meeting_mismatch", meeting, client=client)
+            raise GatewayError("EXISTING_MEETING_MISMATCH", "Original meeting request data differs.", 409)
     return meeting, created
 
 
@@ -52,6 +67,7 @@ def provision(meeting, values):
     with transaction.atomic():
         locked = Meeting.objects.select_for_update().get(pk=meeting.pk)
         if locked.status in (Meeting.Status.READY, Meeting.Status.LIVE):
+            audit("meeting_ready_replayed", locked, client=locked.integration_client)
             return locked, None
         if locked.status in (Meeting.Status.RESERVED, Meeting.Status.PROVISIONING):
             raise GatewayError(
@@ -70,16 +86,25 @@ def provision(meeting, values):
             )
         terminal_errors = {
             Meeting.Status.ENDED: ("CLASS_ALREADY_COMPLETED", "This class has already completed."),
+            Meeting.Status.NON_RETRYABLE_FAILED: ("PREVIOUS_CREATION_FAILED", "Previous creation failed; operator review is required."),
             Meeting.Status.FAILED: ("PREVIOUS_CREATION_FAILED", "Previous meeting creation failed; operator review is required."),
             Meeting.Status.CANCELLED: ("CLASS_CANCELLED", "This class has been cancelled."),
         }
         if locked.status in terminal_errors:
             code, message = terminal_errors[locked.status]
             raise GatewayError(code, message, 409)
-        if locked.status != Meeting.Status.DRAFT:
+        retrying = locked.status == Meeting.Status.RETRYABLE_FAILED
+        if locked.status not in (Meeting.Status.DRAFT, Meeting.Status.RETRYABLE_FAILED):
             raise GatewayError(
                 "EXISTING_MEETING_REQUIRES_REVIEW",
                 "The existing meeting requires operator review.",
+                409,
+            )
+        if retrying and any((locked.provider_calendar_id, locked.provider_unique_id,
+                             locked.provider_panel_address, locked.encrypted_provider_start_url)):
+            raise GatewayError(
+                "PROVIDER_RECONCILIATION_REQUIRED",
+                "Existing provider fields require review before another creation.",
                 409,
             )
         if values["startAt"].date() != locked.class_date:
@@ -87,10 +112,19 @@ def provision(meeting, values):
                 "CLASS_DATE_MISMATCH",
                 "The start date in the service timezone must match the class date.",
             )
-        reserved = RoomAllocator.allocate_any_room(
-            locked, values["startAt"], values["endAt"]
+        if retrying and locked.reservation_active and locked.room_id:
+            reserved = locked
+        else:
+            locked.status = Meeting.Status.DRAFT
+            locked.save(update_fields=["status", "updated_at"])
+            reserved = RoomAllocator.allocate_any_room(
+                locked, values["startAt"], values["endAt"]
+            )
+        payload = (
+            json.loads(decrypt(reserved.encrypted_provider_payload))
+            if retrying and reserved.encrypted_provider_payload
+            else resolve_config(reserved.integration_client, reserved.room)
         )
-        payload = resolve_config(reserved.integration_client, reserved.room)
         # meetingTitle is the Gateway/LMS field; Convay's contract requires title.
         payload.pop("meetingTitle", None)
         payload["title"] = reserved.meeting_title
@@ -105,6 +139,8 @@ def provision(meeting, values):
         reserved.encrypted_provider_payload = encrypt(json.dumps(payload))
         reserved.status = Meeting.Status.PROVISIONING
         reserved.save()
+        audit("provider_retry_started" if retrying else "provider_provisioning_started",
+              reserved, client=reserved.integration_client)
     client = ConvayClient(meeting_id=reserved.pk)
     try:
         token = get_token(reserved.room, meeting_id=reserved.pk)
@@ -134,9 +170,15 @@ def provision(meeting, values):
                 current.status = (
                     Meeting.Status.PROVIDER_STATE_UNKNOWN
                     if exc.ambiguous
-                    else Meeting.Status.FAILED
+                    else Meeting.Status.RETRYABLE_FAILED
+                    if exc.code in ("PROVIDER_UNAVAILABLE", "PROVIDER_RATE_LIMITED", "PROVIDER_AUTH_BUSY")
+                    else Meeting.Status.NON_RETRYABLE_FAILED
                 )
-                current.reservation_active = exc.ambiguous
+                current.reservation_active = exc.ambiguous or current.status == Meeting.Status.RETRYABLE_FAILED
+            if retrying:
+                audit("provider_retry_failed", current, client=current.integration_client)
+            if exc.ambiguous:
+                audit("provider_state_unknown", current, client=current.integration_client)
             current.last_provider_error = exc.code
             current.save()
             audit(
@@ -181,10 +223,10 @@ def provision(meeting, values):
                 "An operator changed the meeting during creation; review provider state.",
                 409,
             )
-        current.provider_calendar_id = data.calendar_id
-        current.provider_unique_id = data.unique_id
-        current.provider_panel_address = data.meeting_panel_address
-        current.encrypted_provider_start_url = (
+        current.provider_calendar_id = current.provider_calendar_id or data.calendar_id
+        current.provider_unique_id = current.provider_unique_id or data.unique_id
+        current.provider_panel_address = current.provider_panel_address or data.meeting_panel_address
+        current.encrypted_provider_start_url = current.encrypted_provider_start_url or (
             encrypt(data.start_meeting_url) if data.start_meeting_url else None
         )
         current.provider_created_at = timezone.now()
@@ -192,6 +234,8 @@ def provision(meeting, values):
         current.last_provider_error = None
         current.save()
         audit("meeting_created", current, client=current.integration_client)
+        if retrying:
+            audit("provider_retry_succeeded", current, client=current.integration_client)
     return current, token
 
 
@@ -204,6 +248,8 @@ def cancel(meeting):
             Meeting.Status.DRAFT,
             Meeting.Status.RESERVED,
             Meeting.Status.FAILED,
+            Meeting.Status.RETRYABLE_FAILED,
+            Meeting.Status.NON_RETRYABLE_FAILED,
         ):
             raise GatewayError(
                 "PROVIDER_RECONCILIATION_REQUIRED",

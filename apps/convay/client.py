@@ -3,7 +3,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 import httpx
 from django.conf import settings
@@ -80,6 +80,19 @@ def normalize_auth(body):
         AttributeError,
     ):
         pass
+    if isinstance(data, dict):
+        try:
+            reported = data.get("expiresAt")
+            if reported is not None:
+                reported = datetime.fromisoformat(str(reported).replace("Z", "+00:00"))
+                if reported.tzinfo is None:
+                    raise ValueError
+            elif data.get("expiresIn") is not None:
+                reported = datetime.now(timezone.utc) + timedelta(seconds=float(data["expiresIn"]))
+            if reported is not None:
+                expiry = min(expiry, reported) if expiry else reported
+        except (ValueError, TypeError, OverflowError):
+            pass
     # Unverified exp is only a conservative cache hint, never authentication proof.
     return ProviderAuthResult(token, refresh, expiry)
 

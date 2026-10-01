@@ -107,7 +107,9 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": (
         "Trusted backend API. Exchange client credentials at "
         "/api/v1/auth/token/ for a Gateway Bearer JWT over HTTPS. "
-        "Scopes and ownership enforced; Convay tokens may be account scoped."
+        "Gateway token default: 60 minutes (3600 seconds); renew using client credentials. "
+        "Convay token lifetime is provider-controlled, observed around 6 hours; use expiresAt. "
+        "Both tokens are server-to-server only. Scopes and ownership enforced."
     ),
     "SERVE_PERMISSIONS": [
         "rest_framework.permissions.AllowAny"
@@ -170,3 +172,7 @@ GATEWAY_JWT_ISSUER = "meeting-gateway"
 GATEWAY_JWT_AUDIENCE = "meeting-gateway-api"
 if GATEWAY_ACCESS_TOKEN_TTL_SECONDS <= 0:
     raise ValueError("Gateway access token TTL must be positive.")
+
+CONVAY_TOKEN_EXPIRY_SKEW_SECONDS = int(os.getenv("CONVAY_TOKEN_EXPIRY_SKEW_SECONDS", "300"))
+if CONVAY_TOKEN_EXPIRY_SKEW_SECONDS < 0:
+    raise ValueError("Convay token expiry skew must not be negative.")

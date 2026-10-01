@@ -40,7 +40,7 @@ def test_create_with_write_scope_and_safe_replay(
         ) as upstream,
     ):
         response = api.post(url, payload, format="json")
-        assert response.status_code == 201, response.data
+        assert response.status_code == 200, response.data
         assert ("authorization" in response.data["data"]["convay"]) == (
             "meeting:token" in initial_scopes
         )

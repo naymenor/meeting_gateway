@@ -34,9 +34,11 @@ def get_token(room, force=False, meeting_id=None):
                         if item["expiry"]
                         else None
                     )
-                    if expiry is None or (expiry - timezone.now()).total_seconds() > 30:
+                    if expiry is None or (
+                        expiry - timezone.now()
+                    ).total_seconds() > settings.CONVAY_TOKEN_EXPIRY_SKEW_SECONDS:
                         return ProviderAuthResult(item["token"], expires_at=expiry)
-                except (ValueError, KeyError):
+                except (ValueError, KeyError, TypeError):
                     cache.delete(key)
             client = ConvayClient(meeting_id=meeting_id)
             try:
@@ -51,7 +53,8 @@ def get_token(room, force=False, meeting_id=None):
             finally:
                 client.close()
             ttl = (
-                min(300, int((result.expires_at - timezone.now()).total_seconds()) - 30)
+                int((result.expires_at - timezone.now()).total_seconds())
+                - settings.CONVAY_TOKEN_EXPIRY_SKEW_SECONDS
                 if result.expires_at
                 else 60
             )

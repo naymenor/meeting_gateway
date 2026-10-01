@@ -119,7 +119,7 @@ def test_ineligible_room_skipped_for_snapshot_and_creation(api, room, changes, p
     fallback = make_room('fallback', 200)
     assert api.get(URL, QUERY).data['data']['available'] is True
     response = api.post('/api/v1/meetings/', PAYLOAD, format='json')
-    assert response.status_code == 201
+    assert response.status_code == 200
     assert Meeting.objects.get(pk=response.data['data']['id']).room_id == fallback.pk
 
 

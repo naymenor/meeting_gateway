@@ -55,13 +55,23 @@ class TokenView(APIView):
             401: OpenApiResponse(ErrorResponseSerializer, "INVALID_CLIENT."),
             429: OpenApiResponse(ErrorResponseSerializer, "Token exchange rate limited."),
         },
-        description="Exchange machine client credentials for a short-lived Gateway JWT. No Django session or Admin login required. This is not a Convay token.",
+        description=(
+            "POST /api/v1/auth/token/ exchanges client credentials for a Gateway Access Token "
+            "used by LMS to authenticate to Meeting Gateway. Default lifetime is 3600 seconds / "
+            "60 minutes, configured by GATEWAY_ACCESS_TOKEN_TTL_SECONDS; expiresIn reflects runtime settings. "
+            "Cache it server-side and obtain another token using client_id/client_secret near expiry "
+            "or after 401 TOKEN_EXPIRED, then retry the original request. No refresh-token mechanism. "
+            "The separate Convay Access Token is returned by successful meeting operations or "
+            "convay-token; its provider-controlled lifetime is observed around 6 hours. Use returned "
+            "expiresAt rather than assuming a duration. Convay tokens are server-to-server only; "
+            "the Gateway reauthenticates automatically."
+        ),
         examples=[
             OpenApiExample(
                 "Client credentials",
                 value={
-                    "client_id": "11111111-1111-4111-8111-111111111111",
-                    "client_secret": "FAKE_CLIENT_SECRET",
+                    "client_id": "example-client",
+                    "client_secret": "example-secret",
                 },
                 request_only=True,
             ),

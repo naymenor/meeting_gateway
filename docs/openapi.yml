@@ -2,9 +2,11 @@ openapi: 3.0.3
 info:
   title: Meeting Gateway
   version: 1.0.0
-  description: Trusted backend API. Exchange client credentials at /api/v1/auth/token/
-    for a Gateway Bearer JWT over HTTPS. Scopes and ownership enforced; Convay tokens
-    may be account scoped.
+  description: 'Trusted backend API. Exchange client credentials at /api/v1/auth/token/
+    for a Gateway Bearer JWT over HTTPS. Gateway token default: 60 minutes (3600 seconds);
+    renew using client credentials. Convay token lifetime is provider-controlled,
+    observed around 6 hours; use expiresAt. Both tokens are server-to-server only.
+    Scopes and ownership enforced.'
 paths:
   /api/schema/:
     get:
@@ -153,8 +155,16 @@ paths:
   /api/v1/auth/token/:
     post:
       operationId: create_gateway_token
-      description: Exchange machine client credentials for a short-lived Gateway JWT.
-        No Django session or Admin login required. This is not a Convay token.
+      description: POST /api/v1/auth/token/ exchanges client credentials for a Gateway
+        Access Token used by LMS to authenticate to Meeting Gateway. Default lifetime
+        is 3600 seconds / 60 minutes, configured by GATEWAY_ACCESS_TOKEN_TTL_SECONDS;
+        expiresIn reflects runtime settings. Cache it server-side and obtain another
+        token using client_id/client_secret near expiry or after 401 TOKEN_EXPIRED,
+        then retry the original request. No refresh-token mechanism. The separate
+        Convay Access Token is returned by successful meeting operations or convay-token;
+        its provider-controlled lifetime is observed around 6 hours. Use returned
+        expiresAt rather than assuming a duration. Convay tokens are server-to-server
+        only; the Gateway reauthenticates automatically.
       tags:
       - api
       requestBody:
@@ -165,8 +175,8 @@ paths:
             examples:
               ClientCredentials:
                 value:
-                  client_id: 11111111-1111-4111-8111-111111111111
-                  client_secret: FAKE_CLIENT_SECRET
+                  client_id: example-client
+                  client_secret: example-secret
                 summary: Client credentials
           application/x-www-form-urlencoded:
             schema:
@@ -375,16 +385,25 @@ paths:
         by the Meeting Gateway. Obtain a Gateway Bearer token, check availability,
         choose a time, then POST metadata and startAt/endAt here. Availability is
         only a snapshot: Gateway atomically rechecks and reserves the capacity, authenticates
-        internally and creates Convay before returning READY (201). A duplicate client
-        + class.id in READY/LIVE returns the existing meeting (200). RESERVED/PROVISIONING
-        returns 409 CREATION_IN_PROGRESS; unresolved provider outcomes return 409
-        PROVIDER_RECONCILIATION_REQUIRED. Exhausted capacity returns 409 NO_CAPACITY_AVAILABLE;
-        refresh availability and select another time. Timestamps must be timezone-aware
-        and are stored in UTC. Authorization and startMeetingUrl require meeting:token.
-        Use convay-token later for current authorization. ENDED returns 409 CLASS_ALREADY_COMPLETED;
-        FAILED returns 409 PREVIOUS_CREATION_FAILED; CANCELLED returns 409 CLASS_CANCELLED.
-        Unsupported legacy states or duplicate logical rows return 409 EXISTING_MEETING_REQUIRES_REVIEW.
-        These states never trigger provider creation.'
+        internally and creates Convay before returning READY (201). Meeting creation
+        is logically idempotent by IntegrationClient + class.id. If an identical scheduler
+        retry is made after a safely retryable incomplete attempt, the Gateway resumes
+        the same logical Meeting rather than creating a duplicate. Existing READY
+        meetings are returned without another Convay creation. READY/LIVE replay and
+        successful retry return 200. RETRYABLE_FAILED resumes the same record and
+        reservation. Original meetingTitle, teacher.id/name, batch.id/name, class.id/date
+        and startAt/endAt are immutable; changes return 409 EXISTING_MEETING_MISMATCH.
+        Expired Gateway JWT returns 401 TOKEN_EXPIRED before any meeting mutation.
+        RESERVED/PROVISIONING returns 409 CREATION_IN_PROGRESS; unresolved provider
+        outcomes return 409 PROVIDER_RECONCILIATION_REQUIRED. Exhausted capacity returns
+        409 NO_CAPACITY_AVAILABLE; retry the identical request when capacity is available.
+        Timestamps must be timezone-aware and are stored in UTC. Authorization and
+        startMeetingUrl require meeting:token. Use convay-token later for current
+        authorization. ENDED returns 409 CLASS_ALREADY_COMPLETED; NON_RETRYABLE_FAILED
+        or legacy FAILED returns 409 PREVIOUS_CREATION_FAILED; CANCELLED returns 409
+        CLASS_CANCELLED. Unsupported legacy states or duplicate logical rows return
+        409 EXISTING_MEETING_REQUIRES_REVIEW. These states never trigger provider
+        creation.'
       tags:
       - api
       requestBody:
@@ -455,7 +474,8 @@ paths:
                           expiresAt: null
                       createdAt: '2026-09-24T10:00:00+06:00'
                   summary: Successful meeting creation
-          description: Meeting was already READY; existing result returned.
+          description: Existing READY/LIVE meeting returned or safe scheduler retry
+            completed.
         '201':
           content:
             application/json:
@@ -493,7 +513,7 @@ paths:
                           expiresAt: null
                       createdAt: '2026-09-24T10:00:00+06:00'
                   summary: Successful meeting creation
-          description: ''
+          description: New meeting successfully created.
         '400':
           content:
             application/json:
@@ -644,8 +664,14 @@ paths:
   /api/v1/meetings/{id}/convay-token/:
     post:
       operationId: get_convay_token
-      description: Requires meeting:token. Uses Gateway UUID, never calendarId. Returns
-        account-scoped access token, never refresh token.
+      description: Requires meeting:token and Gateway UUID. Returns a currently usable
+        Convay access token for the provider account internally assigned to this meeting.
+        Gateway reuses a valid provider token or reauthenticates automatically when
+        necessary. Returns convay.calendarId and authorization.accessToken, tokenType
+        and expiresAt. Convay lifetime is provider-controlled, currently observed
+        around 6 hours; use actual expiresAt (null if unknown), never assume a fixed
+        duration. Server-to-server only. Gateway renews cached tokens within the configurable
+        300-second expiry safety window. No credentials or refresh token are returned.
       parameters:
       - in: path
         name: id
@@ -1220,5 +1246,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Obtain a Gateway accessToken from POST /api/v1/auth/token/. Paste
-        the token here. Do not use a Convay JWT.
+      description: 'Obtain a Gateway accessToken from POST /api/v1/auth/token/. Default
+        lifetime: 60 minutes (3600 seconds). Obtain another using client credentials
+        near expiry or after 401 TOKEN_EXPIRED, then retry. Paste the Gateway token
+        here. Convay tokens have a separate provider-controlled lifetime.'

@@ -100,9 +100,9 @@ class MeetingListView(APIView):
         responses={
             200: OpenApiResponse(
                 MeetingResponseSerializer,
-                "Meeting was already READY; existing result returned.",
+                "Existing READY/LIVE meeting returned or safe scheduler retry completed.",
             ),
-            201: MeetingResponseSerializer,
+            201: OpenApiResponse(MeetingResponseSerializer, "New meeting successfully created."),
             **ERROR_RESPONSES,
         },
         description=(
@@ -111,14 +111,21 @@ class MeetingListView(APIView):
             "choose a time, then POST metadata and startAt/endAt here. "
             "Availability is only a snapshot: Gateway atomically rechecks and reserves the "
             "capacity, authenticates internally and creates Convay before returning READY (201). "
-            "A duplicate client + class.id in READY/LIVE returns the existing meeting (200). "
+            "Meeting creation is logically idempotent by IntegrationClient + class.id. "
+            "If an identical scheduler retry is made after a safely retryable incomplete "
+            "attempt, the Gateway resumes the same logical Meeting rather than creating a "
+            "duplicate. Existing READY meetings are returned without another Convay creation. "
+            "READY/LIVE replay and successful retry return 200. RETRYABLE_FAILED resumes "
+            "the same record and reservation. Original meetingTitle, teacher.id/name, batch.id/name, "
+            "class.id/date and startAt/endAt are immutable; changes return 409 EXISTING_MEETING_MISMATCH. "
+            "Expired Gateway JWT returns 401 TOKEN_EXPIRED before any meeting mutation. "
             "RESERVED/PROVISIONING returns 409 CREATION_IN_PROGRESS; unresolved provider "
             "outcomes return 409 PROVIDER_RECONCILIATION_REQUIRED. Exhausted capacity returns "
-            "409 NO_CAPACITY_AVAILABLE; refresh availability and select another time. "
+            "409 NO_CAPACITY_AVAILABLE; retry the identical request when capacity is available. "
             "Timestamps must be timezone-aware and are stored in UTC. "
             "Authorization and startMeetingUrl require meeting:token. Use convay-token "
             "later for current authorization. ENDED returns 409 CLASS_ALREADY_COMPLETED; "
-            "FAILED returns 409 PREVIOUS_CREATION_FAILED; CANCELLED returns 409 CLASS_CANCELLED. "
+            "NON_RETRYABLE_FAILED or legacy FAILED returns 409 PREVIOUS_CREATION_FAILED; CANCELLED returns 409 CLASS_CANCELLED. "
             "Unsupported legacy states or duplicate logical rows return 409 "
             "EXISTING_MEETING_REQUIRES_REVIEW. These states never trigger provider creation."
         ),
@@ -197,9 +204,8 @@ class MeetingListView(APIView):
         serializer = CreateMeetingSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         values = serializer.validated_data
-        meeting, _ = register(request.user, values)
+        meeting, created = register(request.user, values)
         current, token = provision(meeting, values)
-        created = token is not None
         if "meeting:token" in request.user.scopes:
             if token is None:
                 token = get_token(current.room, meeting_id=current.pk)
@@ -271,7 +277,16 @@ class MeetingTokenView(APIView):
         operation_id="get_convay_token",
         request=None,
         responses={200: ConvayTokenResponseSerializer, **ERROR_RESPONSES},
-        description="Requires meeting:token. Uses Gateway UUID, never calendarId. Returns account-scoped access token, never refresh token.",
+        description=(
+            "Requires meeting:token and Gateway UUID. Returns a currently usable Convay access token "
+            "for the provider account internally assigned to this meeting. Gateway reuses a valid "
+            "provider token or reauthenticates automatically when necessary. "
+            "Returns convay.calendarId and authorization.accessToken, tokenType and expiresAt. "
+            "Convay lifetime is provider-controlled, currently observed around 6 hours; use actual "
+            "expiresAt (null if unknown), never assume a fixed duration. Server-to-server only. "
+            "Gateway renews cached tokens within the configurable 300-second expiry safety window. "
+            "No credentials or refresh token are returned."
+        ),
         examples=[
             OpenApiExample(
                 "Regenerated Convay authorization",

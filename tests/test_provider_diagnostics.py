@@ -160,7 +160,7 @@ def test_401_reauthentication_once(meeting, room, times, second_status):
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "status,active",
-    [(400, False), (403, False), (404, False), (422, False), (429, False), (500, True)],
+    [(400, False), (403, False), (404, False), (422, False), (429, True), (500, True)],
 )
 def test_new_reservation_state_on_http_error(meeting, room, times, status, active):
     client = ConvayClient(
@@ -181,7 +181,7 @@ def test_new_reservation_state_on_http_error(meeting, room, times, status, activ
             )
     meeting.refresh_from_db()
     assert meeting.reservation_active == active
-    assert meeting.status == ("PROVIDER_STATE_UNKNOWN" if active else "FAILED")
+    assert meeting.status == ("RETRYABLE_FAILED" if status == 429 else "PROVIDER_STATE_UNKNOWN" if active else "NON_RETRYABLE_FAILED")
 
 
 def test_recursive_provider_redaction():

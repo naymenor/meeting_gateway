@@ -34,9 +34,8 @@ def test_creation_naturally_reuses_class(api, client_account, room, provider_suc
         {**PAYLOAD, "meetingTitle": "Changed"},
         format="json",
     )
-    assert changed.status_code == 200
-    assert changed.data["data"]["id"] == first.data["data"]["id"]
-    assert changed.data["data"]["meetingInfo"]["meetingTitle"] == "Physics"
+    assert changed.status_code == 409
+    assert changed.data["code"] == "EXISTING_MEETING_MISMATCH"
     search = api.get("/api/v1/meetings/?teacher_name=teach&class_date=2026-09-25")
     assert search.data["data"]["count"] == 1
     assert "authorization" not in json.dumps(search.data)
@@ -120,7 +119,7 @@ def test_creation_token_and_natural_replay(api, meeting, room, times):
             payload,
             format="json",
         )
-        assert first.status_code == 201, first.data
+        assert first.status_code == 200, first.data
         replay = api.post(
             "/api/v1/meetings/",
             payload,

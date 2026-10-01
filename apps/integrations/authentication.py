@@ -27,5 +27,5 @@ class ClientScheme(OpenApiAuthenticationExtension):
             "type": "http",
             "scheme": "bearer",
             "bearerFormat": "JWT",
-            "description": "Obtain a Gateway accessToken from POST /api/v1/auth/token/. Paste the token here. Do not use a Convay JWT.",
+            "description": "Obtain a Gateway accessToken from POST /api/v1/auth/token/. Default lifetime: 60 minutes (3600 seconds). Obtain another using client credentials near expiry or after 401 TOKEN_EXPIRED, then retry. Paste the Gateway token here. Convay tokens have a separate provider-controlled lifetime.",
         }
